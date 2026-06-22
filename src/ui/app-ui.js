@@ -20,7 +20,9 @@ import {
 } from '../services/notification-service.js';
 import { signOut } from '../services/auth.js';
 import { platform } from '../lib/platform.js';
+import { withAbortTimeout } from '../lib/async.js';
 
+const SYNC_STEP_TIMEOUT_MS = 20_000;
 const dom = {};
 let selectedPriority = 1;
 let selectedFiles = [];
@@ -321,9 +323,9 @@ async function performSync(showToast) {
   setState({ syncing: true });
   render();
   try {
-    const outbox = await flushOutbox();
+    const outbox = await withAbortTimeout(() => flushOutbox(), { timeoutMs: SYNC_STEP_TIMEOUT_MS, message: 'Synchronizácia trvá príliš dlho.' });
     if (getState().user?.id !== userId) return;
-    const tasks = await fetchTasks();
+    const tasks = await withAbortTimeout(() => fetchTasks(), { timeoutMs: SYNC_STEP_TIMEOUT_MS, message: 'Načítanie úloh trvá príliš dlho.' });
     if (getState().user?.id !== userId) return;
     const syncError = outbox.unresolved ? `${outbox.unresolved} offline zmien vyžaduje kontrolu` : null;
     setState({ tasks, syncing: false, syncError, failedOutboxCount: outbox.unresolved || 0 });

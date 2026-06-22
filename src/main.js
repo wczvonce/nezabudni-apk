@@ -19,6 +19,8 @@ import {
   toast,
 } from './ui/app-ui.js';
 import { platform } from './lib/platform.js';
+import { withAbortTimeout } from './lib/async.js';
+import { classifyStartupError } from './lib/startup.js';
 
 const BOOT_STEP_TIMEOUT_MS = 20_000;
 let unsubscribeAuth = null;
@@ -30,12 +32,11 @@ let authGeneration = 0;
 let authTransitionQueue = Promise.resolve();
 let loginBusy = false;
 
+// Adaptér na zdieľaný abortovateľný timeout. Operácia sa už spustila (eager),
+// preto ju len pretekáme s časovým limitom; pri timeoute vyhodí TimeoutError,
+// ktorý vieme klasifikovať ako prechodný (Issue 1/9).
 function withTimeout(promise, message, timeoutMs = BOOT_STEP_TIMEOUT_MS) {
-  let timeoutId;
-  const timeout = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+  return withAbortTimeout(() => promise, { timeoutMs, message });
 }
 
 function isCurrentTransition(generation, userId) {
@@ -146,11 +147,14 @@ async function bootUser(user, generation) {
 
   const promise = (async () => {
     showLoading(true);
+
+    // === KRITICKÁ FÁZA: bez nej nevieme zobraziť appku ===
+    let identity;
     try {
       await closeCurrentContext();
       if (!isCurrentTransition(generation, user.id)) return;
 
-      const identity = await withTimeout(
+      identity = await withTimeout(
         loadIdentity(user.id),
         'Načítanie profilu trvá príliš dlho. Skontroluj internet a nastavenie Supabase.',
       );
@@ -167,30 +171,48 @@ async function bootUser(user, generation) {
       resetTransientUi();
       setState({ demoMode: false, user, ...identity, tasks: cached, booted: true, syncError: null });
       showApp();
+    } catch (error) {
+      if (!isCurrentTransition(generation, user.id)) return;
+      console.error('Startup critical phase failed', error);
+      // Iba POTVRDENÉ zlyhanie autentifikácie smie odhlásiť. Prechodná chyba
+      // (sieť, timeout, DB) ponechá platnú reláciu a ukáže zotaviteľný stav.
+      if (classifyStartupError(error) === 'auth') {
+        await showSignedOut(generation);
+      } else {
+        showLoading(false);
+        resetTransientUi();
+        showAuth(true, `Štart sa nepodaril (dočasný problém): ${error.message} Tvoje prihlásenie je zachované — skús to znova.`);
+      }
+      return;
+    }
 
+    // === NAJLEPŠIA SNAHA: appka je už zobrazená; chyby tu NESMÚ odhlásiť ===
+    try {
       const notificationStatus = await withTimeout(
         initializeNotifications(({ taskId }) => taskId && openTaskFromNotification(taskId)),
         'Inicializácia upozornení trvá príliš dlho.',
       );
-      if (!isCurrentTransition(generation, user.id)) return;
-      setState({ notificationStatus });
-      render();
+      if (isCurrentTransition(generation, user.id)) { setState({ notificationStatus }); render(); }
+    } catch (error) {
+      console.warn('Notifications init failed (non-fatal)', error?.message);
+    }
+    if (!isCurrentTransition(generation, user.id)) return;
 
-      try {
-        await withTimeout(registerCurrentDevice(), 'Registrácia zariadenia trvá príliš dlho.');
-        if (isCurrentTransition(generation, user.id)) setState({ notificationStatus: await diagnostics() });
-      } catch (error) {
-        console.warn('Device registration pending', error);
-      }
-      if (!isCurrentTransition(generation, user.id)) return;
+    try {
+      await withTimeout(registerCurrentDevice(), 'Registrácia zariadenia trvá príliš dlho.');
+      if (isCurrentTransition(generation, user.id)) setState({ notificationStatus: await diagnostics() });
+    } catch (error) {
+      console.warn('Device registration pending', error?.message);
+    }
+    if (!isCurrentTransition(generation, user.id)) return;
 
-      // Najprv odošli lokálne čakajúce zmeny. Až potom načítaj cloud,
-      // inak by sa offline optimistické zmeny mohli dočasne prepísať.
+    // Najprv odošli lokálne čakajúce zmeny. Až potom načítaj cloud,
+    // inak by sa offline optimistické zmeny mohli dočasne prepísať.
+    try {
       const outbox = await withTimeout(flushOutbox(), 'Synchronizácia offline zmien trvá príliš dlho.');
       if (!isCurrentTransition(generation, user.id)) return;
       const tasks = await withTimeout(fetchTasks(), 'Načítanie úloh trvá príliš dlho.');
       if (!isCurrentTransition(generation, user.id)) return;
-
       setState({
         tasks,
         syncing: false,
@@ -198,16 +220,18 @@ async function bootUser(user, generation) {
         failedOutboxCount: outbox.unresolved || 0,
       });
       render();
-      subscribeRealtime(identity.pair.id, generation, user.id);
-      processPendingNotification();
     } catch (error) {
-      if (!isCurrentTransition(generation, user.id)) return;
-      console.error(error);
-      showLoading(false);
-      resetTransientUi();
-      resetState();
-      showAuth(true, `Nastavenie účtu nie je dokončené: ${error.message}`);
+      // Zlyhanie synchronizácie NESMIE odhlásiť – appka beží ďalej s bannerom.
+      if (isCurrentTransition(generation, user.id)) {
+        setState({ syncing: false, syncError: 'Synchronizácia zlyhala; skús ručnú synchronizáciu.' });
+        render();
+      }
+      console.warn('Initial sync failed (non-fatal)', error?.message);
     }
+    if (!isCurrentTransition(generation, user.id)) return;
+
+    subscribeRealtime(identity.pair.id, generation, user.id);
+    processPendingNotification();
   })();
 
   bootPromise = promise;
