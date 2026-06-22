@@ -1,0 +1,18 @@
+{
+  "id": "/",
+  "name": "Nezabudni testovacia",
+  "short_name": "Nezabudni Test",
+  "description": "Spoločné pripomienky pre Ivana a Dominiku",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f1115",
+  "theme_color": "#0f1115",
+  "lang": "sk",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    {"src":"/icons/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any maskable"},
+    {"src":"/icons/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}
+  ]
+}

@@ -1,0 +1,4 @@
+project_id = "nezabudni-v19"
+
+[functions.push-worker]
+verify_jwt = false

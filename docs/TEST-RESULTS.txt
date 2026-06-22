@@ -1,0 +1,32 @@
+Nezabudni v19 audited milestone 1
+Test date: 2026-06-20
+
+PASS  SQL migration executes on PostgreSQL WASM engine
+PASS  SQL behavior and idempotency tests
+PASS  IndexedDB task service and per-user separation tests
+PASS  Alarm UI regression tests
+PASS  Push-worker static safety tests
+PASS  Edge Function TypeScript bundle via esbuild
+PASS  JavaScript syntax checks
+PASS  Vite production build
+PASS  Capacitor Android sync
+PASS  Capacitor iOS sync
+PASS  iOS Info.plist lint
+PASS  iOS entitlements lint
+PASS  Local preview HTTP and bundled asset retrieval
+PASS  npm audit: 0 known vulnerabilities
+PASS  no hard-coded OneSignal/Supabase server secrets
+PASS  no CORS wildcard push proxy
+
+NOT EXECUTED  Real Supabase deployment (credentials/project not created yet)
+NOT EXECUTED  Real OneSignal/APNs/FCM delivery on physical devices
+NOT EXECUTED  iOS Xcode signing/TestFlight build (Mac/Xcode unavailable)
+BLOCKED       Android APK build: environment could not resolve services.gradle.org
+
+Deep audit 0.2.2 (2026-06-22)
+- npm run audit: PASS
+- npm audit: 0 vulnerabilities
+- vite build: PASS
+- cap sync android: PASS
+- cap sync ios: PASS
+- Android assembleDebug: NOT COMPLETED (environment could not resolve services.gradle.org)

@@ -1,0 +1,45 @@
+# === Závislosti a build výstupy ===
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# === Env / tajomstvá ===
+.env
+.env.*
+!.env.example
+
+# === Android build / lokálne / podpisovanie ===
+android/.gradle/
+android/build/
+android/app/build/
+android/app/release/
+android/local.properties
+android/captures/
+android/.idea/
+*.keystore
+*.jks
+keystore.properties
+google-services.json
+
+# === iOS build výstupy ===
+ios/App/Pods/
+ios/App/build/
+ios/App/App.xcworkspace/xcuserdata/
+ios/DerivedData/
+*.xcuserstate
+
+# === Supabase lokálny stav ===
+supabase/.temp/
+supabase/.branches/
+
+# === IDE / editor ===
+.vscode/
+.idea/
+*.iml
+*.suo
+
+# === APK / release artefakty (nepatria medzi zdroj) ===
+*.apk
+*.aab
+.capacitor/

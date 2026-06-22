@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Nezabudni testovacia</string>
+    <string name="title_activity_main">Nezabudni testovacia</string>
+    <string name="package_name">sk.povraznik.nezabudni.test</string>
+    <string name="custom_url_scheme">sk.povraznik.nezabudni.test</string>
+</resources>
