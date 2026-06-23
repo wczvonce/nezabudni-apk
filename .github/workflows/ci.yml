@@ -20,7 +20,16 @@ jobs:
           cache: 'npm'
       - name: Clean install
         run: npm ci
-      - name: Audit
+      - name: Startup and IndexedDB regressions
+        run: |
+          node tests/startup-task-service.test.mjs
+          node tests/startup-task-service-runtime.test.mjs
+          node tests/idb-open-resilience.test.mjs
+      - name: Push logout race regression
+        run: node tests/device-registration-race.test.mjs
+      - name: Terminal state SQL regression
+        run: node tests/terminal-complete-guard.test.mjs
+      - name: Full audit
         run: npm run audit
       - name: Dependency security audit
         run: npm audit --audit-level=high
