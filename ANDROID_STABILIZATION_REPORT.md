@@ -3,7 +3,7 @@
 - **Starting commit:** `bbc2510e6bd645a11726859a50720112c5e18055`
 - **Stabilization branch:** `goal-android-stabilization`
 - **Android applicationId:** `sk.povraznik.nezabudni.test`
-- **versionName:** 1.0.5 · **versionCode:** 6
+- **versionName:** 1.0.6 · **versionCode:** 7
 - **Post-stabilization bug-hunt:** `f2a1e97`
 
 ## Výsledok stabilizácie
