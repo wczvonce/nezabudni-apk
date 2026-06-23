@@ -12,7 +12,7 @@ Legenda stavu: ⬜ todo · 🟡 prebieha · ✅ hotové a otestované · 🚧 bl
 | 2 | Push worker — ohraničené dávky / deadline | ✅ |
 | 3 | Terminálne úlohy — konzistentné editovanie | ⬜ |
 | 4 | Edit aktívnej úlohy → reset alarmu | ⬜ |
-| 5 | Opakujúca séria sa nesmie zaseknúť | ⬜ |
+| 5 | Opakujúca séria sa nesmie zaseknúť | ✅ (001+004 + regresný test) |
 | 6 | Offline snooze/complete = absolútne časy | ⬜ |
 | 7 | Lokálne alarmy rešpektujú limity pripomienok | ✅ |
 | 8 | Foreground — nie dve notifikácie | ⬜ |
