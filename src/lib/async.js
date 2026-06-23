@@ -42,11 +42,13 @@ export async function withAbortTimeout(operation, {
 
   const timeoutId = setTimeout(() => controller.abort(new TimeoutError(message)), timeoutMs);
 
+  const opPromise = Promise.resolve().then(() => operation(controller.signal));
+  // Keď preteky vyhrá abort, operácia môže dobehnúť (a odmietnuť) až neskôr.
+  // Túto neskorú reakciu pohltíme, aby nevznikla neodchytená chyba.
+  opPromise.catch(() => {});
+
   try {
-    return await Promise.race([
-      Promise.resolve().then(() => operation(controller.signal)),
-      abortPromise,
-    ]);
+    return await Promise.race([opPromise, abortPromise]);
   } finally {
     clearTimeout(timeoutId);
     controller.signal.removeEventListener('abort', onAbort);

@@ -73,7 +73,7 @@ assert.doesNotMatch(main, /resetState\(\);\s*\n\s*showAuth\(true, `Nastavenie/, 
 
 // ── Statická štruktúra: app-ui.js performSync timeouty (Issue 9) ──
 const ui = fs.readFileSync(new URL('../src/ui/app-ui.js', import.meta.url), 'utf8');
-assert.match(ui, /withAbortTimeout\(\(\) => flushOutbox\(\)/, 'flushOutbox má timeout');
-assert.match(ui, /withAbortTimeout\(\(\) => fetchTasks\(\)/, 'fetchTasks má timeout');
+assert.match(ui, /withAbortTimeout\(\(signal\) => flushOutbox\(signal\)/, 'flushOutbox má timeout + signál (Issue 9)');
+assert.match(ui, /withAbortTimeout\(\(signal\) => fetchTasks\(signal\)/, 'fetchTasks má timeout + signál (Issue 9)');
 
 console.log('startup-resilience.test: OK');

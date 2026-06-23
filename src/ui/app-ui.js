@@ -149,6 +149,7 @@ function renderTabs() {
     ['missed', 'Zmeškané', tasks.filter(isOverdue).length],
     ['all', 'Všetky', tasks.filter((t) => t.status === 'pending').length],
     ['done', 'Hotové', tasks.filter((t) => t.status === 'completed').length],
+    ['rejected', 'Odmietnuté', tasks.filter((t) => t.status === 'rejected').length],
   ];
   dom.tabs.innerHTML = tabs.map(([id, label, count]) => `<button class="tab ${state.activeTab === id ? 'active' : ''}" data-tab="${id}">${esc(label)}${count ? `<span class="badge">${count}</span>` : ''}</button>`).join('');
 }
@@ -163,6 +164,7 @@ function filteredTasks() {
     missed: (t) => isOverdue(t),
     all: (t) => t.status === 'pending',
     done: (t) => t.status === 'completed',
+    rejected: (t) => t.status === 'rejected',
   };
   return tasks.filter(filters[state.activeTab] || filters.today).sort((a, b) => {
     if (a.status === 'completed' && b.status !== 'completed') return 1;
@@ -292,6 +294,9 @@ async function handleSettingAction(action) {
 }
 
 export function openTaskSheet(task = null) {
+  // Issue 8: otvorenie detailu úlohy (napr. z notifikácie) zavrie prípadný
+  // budík, aby sa nezobrazil natívny + in-app alarm pre tú istú úlohu naraz.
+  closeAlarm();
   const state = getState(); setState({ editingTaskId: task?.id || null }); selectedFiles = []; selectedPriority = Number(task?.priority || 1);
   const terminal = Boolean(task) && task.status !== 'pending';
   $('sheetTitle').textContent = !task ? 'Nová úloha' : (terminal ? 'Detail úlohy' : 'Upraviť úlohu');
@@ -385,9 +390,9 @@ async function performSync(showToast) {
   setState({ syncing: true });
   render();
   try {
-    const outbox = await withAbortTimeout(() => flushOutbox(), { timeoutMs: SYNC_STEP_TIMEOUT_MS, message: 'Synchronizácia trvá príliš dlho.' });
+    const outbox = await withAbortTimeout((signal) => flushOutbox(signal), { timeoutMs: SYNC_STEP_TIMEOUT_MS, message: 'Synchronizácia trvá príliš dlho.' });
     if (getState().user?.id !== userId) return;
-    const tasks = await withAbortTimeout(() => fetchTasks(), { timeoutMs: SYNC_STEP_TIMEOUT_MS, message: 'Načítanie úloh trvá príliš dlho.' });
+    const tasks = await withAbortTimeout((signal) => fetchTasks(signal), { timeoutMs: SYNC_STEP_TIMEOUT_MS, message: 'Načítanie úloh trvá príliš dlho.' });
     if (getState().user?.id !== userId) return;
     const syncError = outbox.unresolved ? `${outbox.unresolved} offline zmien vyžaduje kontrolu` : null;
     setState({ tasks, syncing: false, syncError, failedOutboxCount: outbox.unresolved || 0 });
@@ -421,6 +426,8 @@ export async function syncNow(showToast = false) {
 
 function checkDueAlarm() {
   const state = getState(); if (!state.user || alarmTask) return;
+  // Issue 8: keď je otvorený detail úlohy, in-app budík nevyskakuj (zabráni dvojici).
+  if (dom.sheet?.classList.contains('show')) return;
   const now = Date.now();
   const task = state.tasks.find((t) => {
     const alarmKey = `${t.id}:${t.version}:${effectiveDue(t)}`;

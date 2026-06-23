@@ -27,6 +27,15 @@ function isNetworkError(error) {
   return !navigator.onLine || text.includes('fetch') || text.includes('network') || text.includes('failed to fetch');
 }
 
+// Issue 9: operáciu spustenú cez withAbortTimeout treba po timeoute zastaviť skôr,
+// než zapíše (už neaktuálny) výsledok do zdieľanej DB. Túto chybu nesmie pohltiť
+// bežná catch vetva outboxu – preto vlastný kód, ktorý sa znovu vyhodí.
+function operationAborted() {
+  const error = new Error('Operácia bola zrušená (timeout).');
+  error.code = 'OPERATION_ABORTED';
+  return error;
+}
+
 export async function initTaskService({ userId, demoMode, pairId }) {
   const nextContext = { userId, demoMode, pairId };
   const nextDb = new UserDatabase(userId);
@@ -58,8 +67,9 @@ export async function cacheTasks(tasks) {
   assertCurrent(snapshot);
 }
 
-export async function fetchTasks() {
+export async function fetchTasks(signal) {
   const snapshot = contextSnapshot();
+  if (signal?.aborted) throw operationAborted();
   if (snapshot.context.demoMode || !navigator.onLine) {
     const tasks = await snapshot.db.getTasks();
     assertCurrent(snapshot);
@@ -79,6 +89,8 @@ export async function fetchTasks() {
   if (hiddenError) console.warn('Filter skrytých úloh zlyhal; zobrazujem všetky úlohy', hiddenError.message);
   const hidden = new Set((hiddenRows || []).map((r) => r.task_id));
   const visible = (data || []).filter((t) => !hidden.has(t.id));
+  // Issue 9: dobehnuté po timeoute? Nezapisuj – novší sync už mohol uložiť čerstvý stav.
+  if (signal?.aborted) throw operationAborted();
   await snapshot.db.replaceTasks(visible);
   assertCurrent(snapshot);
   return visible;
@@ -115,7 +127,14 @@ async function queueMutation(action, payload, optimisticTask, snapshot) {
   };
   assertCurrent(snapshot);
   await snapshot.db.enqueue(mutation);
-  if (optimisticTask) await snapshot.db.putTasks([optimisticTask]);
+  // Atomicita: ak optimistický zápis zlyhá (napr. plná kvóta IndexedDB), nesmie
+  // ostať v outboxe osirelá mutácia bez zodpovedajúcej úlohy v zozname – vrátime ju späť.
+  try {
+    if (optimisticTask) await snapshot.db.putTasks([optimisticTask]);
+  } catch (error) {
+    await snapshot.db.removeOutbox(mutationId).catch(() => {});
+    throw error;
+  }
   assertCurrent(snapshot);
   return { task: optimisticTask, queued: true };
 }
@@ -342,21 +361,25 @@ export async function hideTaskForSelf(task) {
   return { queued: false };
 }
 
-export async function flushOutbox() {
+export async function flushOutbox(signal) {
   const snapshot = contextSnapshot();
   if (snapshot.context.demoMode || !navigator.onLine) return { processed: 0, failed: 0, unresolved: 0 };
+  if (signal?.aborted) throw operationAborted();
   const items = await snapshot.db.outboxItems();
   let processed = 0;
   let failed = 0;
   for (const item of items) {
+    if (signal?.aborted) throw operationAborted();
     try {
       const task = await callRpc(item.action, item.payload);
+      // Issue 9: dobehnuté po timeoute? Zahoď výsledok – inak prepíše novší sync.
+      if (signal?.aborted) throw operationAborted();
       assertCurrent(snapshot);
       if (task) await snapshot.db.putTasks([task]);
       await snapshot.db.removeOutbox(item.mutation_id);
       processed += 1;
     } catch (error) {
-      if (error?.code === 'ACCOUNT_CONTEXT_CHANGED') throw error;
+      if (error?.code === 'ACCOUNT_CONTEXT_CHANGED' || error?.code === 'OPERATION_ABORTED') throw error;
       if (isNetworkError(error)) break;
       assertCurrent(snapshot);
       // Jedna neplatná alebo konfliktná zmena nesmie navždy zablokovať
