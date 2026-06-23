@@ -11,7 +11,7 @@ import { withAbortTimeout } from '../lib/async.js';
 const STARTUP_SYNC_TIMEOUT_MS = 20_000;
 
 let desiredGeneration = 0;
-let transitionTail = Promise.resolve();
+let initTail = Promise.resolve();
 
 function contextChangedError() {
   const error = new Error('Používateľský účet sa počas inicializácie zmenil.');
@@ -19,20 +19,20 @@ function contextChangedError() {
   return error;
 }
 
-function enqueueTransition(operation) {
-  const run = transitionTail.catch(() => {}).then(operation);
-  transitionTail = run.catch(() => {});
+function enqueueInit(operation) {
+  const run = initTail.catch(() => {}).then(operation);
+  initTail = run.catch(() => {});
   return run;
 }
 
 /**
- * Inicializácie a zatvárania lokálnej DB sa vykonávajú sériovo.
- * Ak staré otvorenie IndexedDB dobehne po timeoute alebo po zmene účtu,
- * pred ďalšou inicializáciou sa zatvorí a nesmie zostať aktívnym kontextom.
+ * Otvárania lokálnej DB sa vykonávajú sériovo. Ak staré otvorenie IndexedDB
+ * dobehne po timeoute alebo po zmene účtu, zatvorí sa ešte pred spustením
+ * nasledujúcej inicializácie a nesmie zostať aktívnym kontextom.
  */
 export function initTaskService(options) {
   const generation = ++desiredGeneration;
-  return enqueueTransition(async () => {
+  return enqueueInit(async () => {
     if (generation !== desiredGeneration) throw contextChangedError();
     await rawInitTaskService(options);
     if (generation !== desiredGeneration) {
@@ -42,9 +42,14 @@ export function initTaskService(options) {
   });
 }
 
+/**
+ * Zatvorenie nesmie čakať na zaseknuté otvorenie IndexedDB. Aktívny kontext
+ * odpojíme hneď a zvýšením generácie zneplatníme všetky rozpracované init pokusy.
+ * Keď starý init neskôr dobehne, jeho vlastná kontrola ho bezpečne zatvorí.
+ */
 export function closeTaskService() {
   ++desiredGeneration;
-  return enqueueTransition(() => rawCloseTaskService());
+  return rawCloseTaskService();
 }
 
 /**
