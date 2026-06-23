@@ -20,7 +20,7 @@ Legenda stavu: ⬜ todo · 🟡 prebieha · ✅ hotové a otestované · 🚧 bl
 | 10 | Inicializácia a listenery iba raz | ✅ |
 | 11 | Queued joby re-evaluovať pred spustením | ⬜ |
 | 12 | Správne akcie autor/príjemca (+ dôvod odmietnutia) | ⬜ |
-| 13 | Android testy čítajú package z konfigurácie | ⬜ |
+| 13 | Android testy čítajú package z konfigurácie | ✅ |
 | 14 | Plánované pripomienky = vysoká push priorita | ⬜ |
 | — | CI (GitHub Actions) | ⬜ |
 | — | Android instrumentation / runtime matica | 🚧 (emulátor/zariadenie) |

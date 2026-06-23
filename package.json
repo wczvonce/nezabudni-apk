@@ -12,9 +12,10 @@
     "cap:android": "npx cap open android",
     "cap:ios": "npx cap open ios",
     "validate": "node scripts/validate.mjs && npm run build",
-    "test": "node tests/public-config.test.mjs && node tests/auth-deadlock.test.mjs && node tests/startup-resilience.test.mjs && node tests/init-single-flight.test.mjs && node tests/account-isolation.test.mjs && node tests/sql-migration.test.mjs && node tests/sql-behavior.test.mjs && node tests/task-service.test.mjs && node tests/ui-alarm.test.mjs && node tests/worker-static.test.mjs",
+    "test": "node tests/public-config.test.mjs && node tests/auth-deadlock.test.mjs && node tests/startup-resilience.test.mjs && node tests/init-single-flight.test.mjs && node tests/account-isolation.test.mjs && node tests/sql-migration.test.mjs && node tests/sql-behavior.test.mjs && node tests/task-service.test.mjs && node tests/ui-alarm.test.mjs && node tests/worker-static.test.mjs && node tests/android-package.test.mjs",
     "check:worker": "node scripts/check-worker.mjs",
-    "audit": "npm run test && npm run check:worker && npm run validate"
+    "check:android": "node scripts/check-android-package.mjs",
+    "audit": "npm run test && npm run check:worker && npm run check:android && npm run validate"
   },
   "dependencies": {
     "@capacitor/android": "8.4.1",
