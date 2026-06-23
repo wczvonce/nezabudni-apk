@@ -29,6 +29,10 @@ const firstRejected = assert.rejects(
   'blokovaný prvý účet musí skončiť rozpoznateľnou chybou',
 );
 
+// Nechaj prvý init vstúpiť do indexedDB.open(), potom simuluj odhlásenie.
+await Promise.resolve();
+assert.equal(requests.length, 1, 'prvý účet musí mať rozpracované otvorenie databázy');
+
 // Odhlásenie nesmie čakať na blokovaný open a nový účet sa môže zaradiť hneď.
 await closeTaskService();
 const second = initTaskService({ userId: 'user-b', demoMode: true, pairId: 'pair-b' });
