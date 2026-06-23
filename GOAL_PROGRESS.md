@@ -15,7 +15,7 @@ Legenda stavu: ⬜ todo · 🟡 prebieha · ✅ hotové a otestované · 🚧 bl
 | 5 | Opakujúca séria sa nesmie zaseknúť | ✅ (001+004 + regresný test) |
 | 6 | Offline snooze/complete = absolútne časy | ✅ (migrácia 005 + klient + pglite test) |
 | 7 | Lokálne alarmy rešpektujú limity pripomienok | ✅ |
-| 8 | Foreground — nie dve notifikácie | ⬜ |
+| 8 | Foreground — nie dve notifikácie | ✅ (foregroundWillDisplay + preventDefault) |
 | 9 | Sync operácie potrebujú timeouty | ✅ |
 | 10 | Inicializácia a listenery iba raz | ✅ |
 | 11 | Queued joby re-evaluovať pred spustením | ✅ (worker re-eval + regresné testy) |

@@ -244,7 +244,8 @@ async function handleSettingAction(action) {
 
 export function openTaskSheet(task = null) {
   const state = getState(); setState({ editingTaskId: task?.id || null }); selectedFiles = []; selectedPriority = Number(task?.priority || 1);
-  $('sheetTitle').textContent = task ? 'Upraviť úlohu' : 'Nová úloha';
+  const terminal = Boolean(task) && task.status !== 'pending';
+  $('sheetTitle').textContent = !task ? 'Nová úloha' : (terminal ? 'Detail úlohy' : 'Upraviť úlohu');
   dom.assigned.innerHTML = state.members.map((m) => `<option value="${m.id}">${esc(m.id === state.user.id ? 'Mne – ' + m.display_name : m.display_name)}</option>`).join('');
   dom.title.value = task?.title || ''; dom.note.value = task?.notes || ''; dom.assigned.value = task?.assigned_to || state.user.id;
   const parts = localInputParts(task?.due_at); dom.date.value = parts.date; dom.time.value = parts.time;
@@ -252,6 +253,11 @@ export function openTaskSheet(task = null) {
   dom.interval.value = String(task?.reminder_interval_seconds || 60); dom.maxReminders.value = String(task?.max_reminders || 10); dom.notifyCreator.checked = Boolean(task?.notify_creator_on_complete);
   dom.prio.querySelectorAll('button').forEach((b) => b.classList.toggle('sel', Number(b.dataset.p) === selectedPriority));
   dom.deleteBtn.hidden = !task; renderSelectedFiles(); updateNotifyCreatorVisibility(); updateCountdown();
+  // Issue 3: terminálnu úlohu možno len prezerať – zakáž úpravu polí a uloženie.
+  [dom.title, dom.note, dom.assigned, dom.date, dom.time, dom.pre, dom.rec, dom.recMode, dom.interval, dom.maxReminders, dom.notifyCreator]
+    .forEach((el) => { if (el) el.disabled = terminal; });
+  const saveBtn = dom.form.querySelector('button[type="submit"]');
+  if (saveBtn) { saveBtn.disabled = terminal; saveBtn.hidden = terminal; }
   dom.scrim.classList.add('show'); dom.sheet.classList.add('show'); setTimeout(() => dom.title.focus(), 200);
 }
 
@@ -268,6 +274,11 @@ async function saveTaskFromForm(event) {
   if (saveButton) saveButton.disabled = true;
   const state = getState(); const editing = state.tasks.find((t) => t.id === state.editingTaskId);
   try {
+    // Issue 3: terminálnu úlohu nemožno upraviť (poistka aj na klientovi).
+    if (editing && editing.status !== 'pending') {
+      toast('Hotovú alebo zrušenú úlohu nemožno upraviť', true);
+      return;
+    }
     const input = { title: dom.title.value.trim(), notes: dom.note.value.trim(), assigned_to: dom.assigned.value, due_at: inputToIso(dom.date.value, dom.time.value), timezone: editing?.timezone || 'Europe/Bratislava', priority: selectedPriority, pre_reminder_minutes: Number(dom.pre.value), recurrence_rule: dom.rec.value, recurrence_mode: dom.recMode.value, notify_creator_on_complete: dom.notifyCreator.checked, reminder_interval_seconds: Number(dom.interval.value), max_reminders: Number(dom.maxReminders.value) };
     if (!input.title) {
       toast('Napíš názov úlohy', true);
