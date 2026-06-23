@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, goal-android-stabilization, fix/security-startup-ci]
+    branches: [main]
   pull_request:
 
 permissions:
@@ -44,12 +44,12 @@ jobs:
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
       - name: Clean install
         run: npm ci
-      - name: Validate Android package
-        run: npm run check:android
       - name: Build web and sync Android
         run: |
           npm run build
           npx cap sync android
+      - name: Validate generated Android configuration
+        run: npm run check:android
       - name: Gradle assembleDebug
         run: |
           cd android
