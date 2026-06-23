@@ -74,9 +74,13 @@ export async function fetchTasks() {
     .order('due_at', { ascending: true });
   if (error) throw error;
   assertCurrent(snapshot);
-  await snapshot.db.replaceTasks(data || []);
+  // Issue 12: vynechaj úlohy, ktoré si používateľ odstránil zo svojho zoznamu.
+  const { data: hiddenRows } = await sb.from('task_hidden').select('task_id');
+  const hidden = new Set((hiddenRows || []).map((r) => r.task_id));
+  const visible = (data || []).filter((t) => !hidden.has(t.id));
+  await snapshot.db.replaceTasks(visible);
   assertCurrent(snapshot);
-  return data || [];
+  return visible;
 }
 
 async function callRpc(action, payload) {
@@ -88,6 +92,7 @@ async function callRpc(action, payload) {
     acknowledge: 'api_acknowledge_task',
     snooze: 'api_snooze_task',
     delete: 'api_delete_task',
+    reject: 'api_reject_task',
   };
   const name = rpcByAction[action];
   if (!name) throw new Error(`Neznáma operácia: ${action}`);
@@ -303,6 +308,37 @@ export async function deleteTask(task) {
     if (isNetworkError(error)) return queueMutation('delete', payload, optimistic, snapshot);
     throw error;
   }
+}
+
+// Issue 12: príjemca odmietne úlohu s POVINNÝM dôvodom.
+export async function rejectTask(task, reason) {
+  const snapshot = contextSnapshot();
+  const trimmed = String(reason || '').trim();
+  if (!trimmed) throw new Error('Uveď dôvod odmietnutia.');
+  const payload = { p_task_id: task.id, p_reason: trimmed, p_mutation_id: uuid() };
+  const optimistic = { ...task, status: 'rejected', rejection_reason: trimmed, rejected_by: snapshot.context.userId, rejected_at: new Date().toISOString(), updated_at: new Date().toISOString(), version: Number(task.version) + 1 };
+  if (snapshot.context.demoMode) { await snapshot.db.putTasks([optimistic]); return { task: optimistic, queued: false }; }
+  if (!navigator.onLine) return queueMutation('reject', payload, optimistic, snapshot);
+  try {
+    const updated = await callRpc('reject', payload);
+    assertCurrent(snapshot);
+    await snapshot.db.putTasks([updated]);
+    return { task: updated, queued: false };
+  } catch (error) {
+    if (isNetworkError(error)) return queueMutation('reject', payload, optimistic, snapshot);
+    throw error;
+  }
+}
+
+// Issue 12: príjemca odstráni terminálnu úlohu zo SVOJHO zoznamu (nemaže autorov záznam).
+export async function hideTaskForSelf(task) {
+  const snapshot = contextSnapshot();
+  if (snapshot.context.demoMode) return { queued: false };
+  const sb = requireSupabase();
+  const { error } = await sb.rpc('api_hide_task_for_self', { p_task_id: task.id });
+  if (error) throw error;
+  assertCurrent(snapshot);
+  return { queued: false };
 }
 
 export async function flushOutbox() {
