@@ -70,6 +70,12 @@ try {
   assert.match(ts, /reject: 'api_reject_task'/, 'reject zapojený do callRpc (aj offline replay)');
   assert.match(ts, /from\('task_hidden'\)\.select\('task_id'\)/, 'fetchTasks filtruje skryté úlohy');
 
+  // UI (Issue 12): tlačidlá + povinný dôvod.
+  const ui = await readFile('src/ui/app-ui.js', 'utf8');
+  assert.match(ui, /data-reject-task/, 'UI: tlačidlo Odmietnuť');
+  assert.match(ui, /data-hide-task/, 'UI: tlačidlo Odstrániť zo svojho zoznamu');
+  assert.match(ui, /Dôvod odmietnutia/, 'UI: vyžiada dôvod odmietnutia');
+
   console.log('reject-and-hide.test: OK');
 } catch (e) {
   console.error('reject-and-hide.test FAILED');

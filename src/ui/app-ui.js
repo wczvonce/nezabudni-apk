@@ -6,6 +6,8 @@ import {
   acknowledgeTask,
   snoozeTask,
   deleteTask,
+  rejectTask,
+  hideTaskForSelf,
   fetchTasks,
   flushOutbox,
   retryFailedOutbox,
@@ -189,15 +191,45 @@ function taskCard(task) {
     <div class="c-body"><div class="c-title">${esc(task.title)}</div>${task.notes ? `<div class="c-note">${esc(task.notes)}</div>` : ''}
       <div class="c-meta"><span class="card-owner ${ownerClass}">Pre: ${esc(assignedName)}</span><span class="chip ${overdue ? 'late' : ''}">🕒 ${fmtDate(due)} ${fmtTime(due)}</span><span class="stars s${task.priority}">${'★'.repeat(Number(task.priority || 1))}</span>${task.snoozed_until ? '<span class="chip snz">Odložené</span>' : ''}</div>
       <div class="creator-line">Zadal/a: ${esc(creatorName)} · ${relativeTime(due)}${task.notify_creator_on_complete && task.created_by !== task.assigned_to ? ' · čaká na potvrdenie splnenia' : ''}</div>
+      ${task.status === 'rejected' && task.rejection_reason ? `<div class="c-note reject-reason">Odmietnuté: ${esc(task.rejection_reason)}</div>` : ''}
+      ${mine && task.status === 'pending' ? `<button type="button" class="link-btn" data-reject-task="${task.id}">Odmietnuť</button>` : ''}
+      ${mine && task.status !== 'pending' ? `<button type="button" class="link-btn" data-hide-task="${task.id}">Odstrániť zo svojho zoznamu</button>` : ''}
     </div></article>`;
 }
 
 async function handleMainClick(event) {
   const complete = event.target.closest('[data-complete-task]');
   if (complete) { event.stopPropagation(); await mutateTask('complete', complete.dataset.completeTask); return; }
+  const reject = event.target.closest('[data-reject-task]');
+  if (reject) { event.stopPropagation(); await rejectTaskFromUi(reject.dataset.rejectTask); return; }
+  const hide = event.target.closest('[data-hide-task]');
+  if (hide) { event.stopPropagation(); await hideTaskFromUi(hide.dataset.hideTask); return; }
   const open = event.target.closest('[data-open-task]'); if (open) openTaskSheet(getState().tasks.find((t) => t.id === open.dataset.openTask));
   const action = event.target.closest('[data-setting-action]');
   if (action) await handleSettingAction(action.dataset.settingAction);
+}
+
+// Issue 12: príjemca odmietne úlohu s povinným dôvodom.
+async function rejectTaskFromUi(taskId) {
+  const task = getState().tasks.find((t) => t.id === taskId); if (!task) return;
+  const reason = window.prompt('Dôvod odmietnutia (povinný):', '');
+  if (reason === null) return;
+  if (!reason.trim()) { toast('Dôvod odmietnutia je povinný', true); return; }
+  try {
+    await rejectTask(task, reason);
+    await refreshFromCacheOrCloud();
+    toast('Úloha odmietnutá');
+  } catch (error) { toast(error.message || 'Odmietnutie zlyhalo', true); }
+}
+
+// Issue 12: príjemca odstráni terminálnu úlohu zo svojho zoznamu.
+async function hideTaskFromUi(taskId) {
+  const task = getState().tasks.find((t) => t.id === taskId); if (!task) return;
+  try {
+    await hideTaskForSelf(task);
+    await refreshFromCacheOrCloud();
+    toast('Odstránené z tvojho zoznamu');
+  } catch (error) { toast(error.message || 'Odstránenie zlyhalo', true); }
 }
 
 function renderSettings() {
