@@ -7,6 +7,14 @@ import { singleFlight } from '../lib/async.js';
 let initialized = false;
 let currentSubscriptionId = null;
 let clickHandler = null;
+let registrationBlocked = false;
+let deviceMutationQueue = Promise.resolve();
+
+function enqueueDeviceMutation(operation) {
+  const run = deviceMutationQueue.catch(() => {}).then(operation);
+  deviceMutationQueue = run.catch(() => {});
+  return run;
+}
 
 // Stabilné referencie listenerov – aby sa registrovali práve raz (Issue 10).
 function handleNotificationClick(event) {
@@ -16,7 +24,7 @@ function handleNotificationClick(event) {
 
 function handleSubscriptionChange(event) {
   currentSubscriptionId = event?.current?.id || null;
-  if (currentSubscriptionId && supabase) {
+  if (currentSubscriptionId && supabase && !registrationBlocked) {
     registerCurrentDevice().catch((error) => console.warn('Push subscription re-registration failed', error));
   }
 }
@@ -50,6 +58,9 @@ function deviceInstallId() {
 }
 
 export async function initializeNotifications(onNotificationClick) {
+  // Nový autentifikovaný boot môže zariadenie znovu registrovať. Odhlásenie túto
+  // možnosť synchronne zablokuje ešte pred zaradením unregister operácie.
+  registrationBlocked = false;
   clickHandler = onNotificationClick;
   if (!platform.isNative || !CONFIG.oneSignalAppId) {
     return diagnostics();
@@ -77,28 +88,42 @@ async function waitForSubscription() {
   return null;
 }
 
-export async function registerCurrentDevice() {
-  if (!supabase || !platform.isNative) return diagnostics();
-  if (!initialized) await initializeNotifications(clickHandler);
-  currentSubscriptionId = await OneSignal.User.pushSubscription.getIdAsync();
-  if (!currentSubscriptionId) return diagnostics();
-  const { error } = await supabase.rpc('api_register_device', {
-    p_subscription_id: currentSubscriptionId,
-    p_platform: platform.name,
-    p_device_install_id: deviceInstallId(),
-    p_device_name: platformLabel(),
+export function registerCurrentDevice() {
+  if (registrationBlocked) return diagnostics();
+  return enqueueDeviceMutation(async () => {
+    if (registrationBlocked || !supabase || !platform.isNative) return diagnostics();
+    if (!initialized) await initializeNotifications(clickHandler);
+    if (registrationBlocked) return diagnostics();
+
+    const subscriptionId = await OneSignal.User.pushSubscription.getIdAsync();
+    if (registrationBlocked) return diagnostics();
+    currentSubscriptionId = subscriptionId;
+    if (!subscriptionId) return diagnostics();
+
+    const { error } = await supabase.rpc('api_register_device', {
+      p_subscription_id: subscriptionId,
+      p_platform: platform.name,
+      p_device_install_id: deviceInstallId(),
+      p_device_name: platformLabel(),
+    });
+    if (error) throw error;
+    return diagnostics();
   });
-  if (error) throw error;
-  return diagnostics();
 }
 
-export async function unregisterCurrentDevice() {
-  if (!supabase || !platform.isNative) return;
-  if (!currentSubscriptionId && initialized) currentSubscriptionId = await OneSignal.User.pushSubscription.getIdAsync();
-  if (!currentSubscriptionId) return;
-  const { error } = await supabase.rpc('api_unregister_device', { p_subscription_id: currentSubscriptionId });
-  if (error) throw error;
-  currentSubscriptionId = null;
+export function unregisterCurrentDevice() {
+  // Nastav blokovanie okamžite. Listener OneSignal tak už nemôže zaradiť novú
+  // registráciu za unregister tesne pred zrušením auth session.
+  registrationBlocked = true;
+  return enqueueDeviceMutation(async () => {
+    if (!supabase || !platform.isNative) return;
+    let subscriptionId = currentSubscriptionId;
+    if (!subscriptionId && initialized) subscriptionId = await OneSignal.User.pushSubscription.getIdAsync();
+    if (!subscriptionId) return;
+    const { error } = await supabase.rpc('api_unregister_device', { p_subscription_id: subscriptionId });
+    if (error) throw error;
+    if (currentSubscriptionId === subscriptionId) currentSubscriptionId = null;
+  });
 }
 
 export async function sendTestNotification() {

@@ -3,7 +3,7 @@ import { CONFIG, hasCloudConfig } from './config.js';
 import { supabase } from './lib/supabase.js';
 import { getSession, signIn, onAuthChange } from './services/auth.js';
 import { loadIdentity } from './services/profile-service.js';
-import { initTaskService, closeTaskService, cachedTasks, cacheTasks, fetchTasks, flushOutbox } from './services/task-service.js';
+import { initTaskService, closeTaskService, cachedTasks, cacheTasks, fetchTasks, flushOutbox } from './services/startup-task-service.js';
 import { initializeNotifications, registerCurrentDevice, diagnostics } from './services/notification-service.js';
 import { setState, resetState, getState } from './state/store.js';
 import {
@@ -123,8 +123,8 @@ function translateAuthError(message) {
 
 async function bootDemo() {
   showLoading(true);
-  const ivan = { id: '11111111-1111-4111-8111-111111111111', display_name: 'Ivan Povrazník', email: 'wczvonce@gmail.com' };
-  const dominika = { id: '22222222-2222-4222-8222-222222222222', display_name: 'Dominika', email: 'domi.mikloskova@gmail.com' };
+  const ivan = { id: '11111111-1111-4111-8111-111111111111', display_name: 'Ivan', email: 'ivan-demo@example.invalid' };
+  const dominika = { id: '22222222-2222-4222-8222-222222222222', display_name: 'Dominika', email: 'dominika-demo@example.invalid' };
   const user = { id: ivan.id, email: ivan.email };
   const pair = { id: '33333333-3333-4333-8333-333333333333', name: 'Ivan a Dominika – ukážka' };
   await initTaskService({ userId: user.id, demoMode: true, pairId: pair.id });

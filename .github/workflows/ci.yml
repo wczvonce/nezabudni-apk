@@ -1,15 +1,8 @@
-# CI workflow pre Nezabudni (GitHub Actions).
-#
-# AKTIVÁCIA (jednorazovo): skopíruj tento súbor do `.github/workflows/ci.yml`.
-# Robí sa to ručne, lebo aktuálny GitHub token nemá `workflow` scope a push
-# súborov do `.github/workflows/` GitHub odmieta. Skopírovať môžeš:
-#  - cez GitHub web UI (Add file -> Create new file -> .github/workflows/ci.yml),
-#  - alebo lokálne po pridaní `workflow` scope tokenu: `gh auth refresh -s workflow`.
 name: CI
 
 on:
   push:
-    branches: [main, goal-android-stabilization]
+    branches: [main]
   pull_request:
 
 permissions:
@@ -27,7 +20,16 @@ jobs:
           cache: 'npm'
       - name: Clean install
         run: npm ci
-      - name: Audit (unit + SQL + worker + android package + validate + vite build)
+      - name: Startup and IndexedDB regressions
+        run: |
+          node tests/startup-task-service.test.mjs
+          node tests/startup-task-service-runtime.test.mjs
+          node tests/idb-open-resilience.test.mjs
+      - name: Push logout race regression
+        run: node tests/device-registration-race.test.mjs
+      - name: Terminal state SQL regression
+        run: node tests/terminal-complete-guard.test.mjs
+      - name: Full audit
         run: npm run audit
       - name: Dependency security audit
         run: npm audit --audit-level=high
@@ -44,17 +46,19 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+      - name: Install Android SDK 36
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
       - name: Clean install
         run: npm ci
-      - name: Validate Android package
-        run: npm run check:android
-      - name: Build web + sync Android
+      - name: Build web and sync Android
         run: |
           npm run build
           npx cap sync android
+      - name: Validate generated Android configuration
+        run: npm run check:android
       - name: Gradle assembleDebug
         run: |
           cd android
