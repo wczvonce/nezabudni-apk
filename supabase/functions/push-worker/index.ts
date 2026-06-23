@@ -54,8 +54,17 @@ Deno.serve(async (request) => {
   const { data: jobs, error: claimError } = await supabase.rpc('claim_notification_jobs', { p_limit: 25 });
   if (claimError) return new Response(JSON.stringify({ error: claimError.message }), { status: 500, headers: corsHeaders });
 
+  // Issue 2: ohraničený beh. Edge Function má časový limit – prestaň brať nové joby
+  // pred jeho dosiahnutím; nedokončené zaclaimované joby sa nižšie bezpečne vrátia
+  // do fronty pre ďalší beh (žiadny job sa nestratí).
+  const claimedJobs = (jobs ?? []) as NotificationJob[];
+  const startedAt = Date.now();
+  const WORKER_DEADLINE_MS = 25_000;
+  let deadlineReached = false;
+
   const results = [];
-  for (const job of (jobs ?? []) as NotificationJob[]) {
+  for (const job of claimedJobs) {
+    if (Date.now() - startedAt > WORKER_DEADLINE_MS) { deadlineReached = true; break; }
     try {
       const task = job.task_id ? await loadTask(supabase, job.task_id) : null;
       if (shouldCancel(job, task)) {
@@ -135,7 +144,20 @@ Deno.serve(async (request) => {
     }
   }
 
-  return new Response(JSON.stringify({ processed: results.length, recurrenceWarning, results }), { status: 200, headers: corsHeaders });
+  // Issue 2: ktorýkoľvek zaclaimovaný job, ktorý sme nestihli dokončiť (deadline
+  // alebo predčasný koniec), vráť do fronty. Dokončené joby už nie sú 'processing',
+  // takže ich to nepoškodí – tým sa žiadny job nestratí pri ukončení invokácie.
+  const claimedIds = claimedJobs.map((j) => j.id);
+  if (claimedIds.length) {
+    const { error: requeueError } = await supabase
+      .from('notification_jobs')
+      .update({ status: 'queued', locked_at: null })
+      .in('id', claimedIds)
+      .eq('status', 'processing');
+    if (requeueError) console.error('Requeue of unfinished jobs failed', requeueError);
+  }
+
+  return new Response(JSON.stringify({ processed: results.length, claimed: claimedJobs.length, deadlineReached, recurrenceWarning, results }), { status: 200, headers: corsHeaders });
 });
 
 

@@ -9,7 +9,7 @@ Legenda stavu: ⬜ todo · 🟡 prebieha · ✅ hotové a otestované · 🚧 bl
 | # | Issue | Stav |
 |---|---|---|
 | 1 | Startup nesmie odhlásiť pri OneSignal/sync zlyhaní | ✅ |
-| 2 | Push worker — ohraničené dávky / deadline | ⬜ |
+| 2 | Push worker — ohraničené dávky / deadline | ✅ |
 | 3 | Terminálne úlohy — konzistentné editovanie | ⬜ |
 | 4 | Edit aktívnej úlohy → reset alarmu | ⬜ |
 | 5 | Opakujúca séria sa nesmie zaseknúť | ⬜ |

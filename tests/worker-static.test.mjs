@@ -19,4 +19,9 @@ assert.match(worker, /loadTask\(supabase, job\.task_id\)/, 'pred odoslaním sa n
 assert.match(worker, /task\.assigned_to !== job\.recipient_id/, 're-eval vzťahu používateľa k úlohe (autorizácia)');
 assert.match(worker, /task\.deleted_at \|\| task\.status !== 'pending'/, 're-eval terminálneho stavu úlohy');
 assert.match(worker, /task\.acknowledged_at/, 're-eval potvrdenia (acknowledged)');
+// Issue 2: ohraničený beh + bezpečné vrátenie nedokončených jobov.
+assert.match(worker, /p_limit:\s*25/, 'bounded batch (claim limit)');
+assert.match(worker, /WORKER_DEADLINE_MS/, 'execution deadline');
+assert.match(worker, /deadlineReached = true; break/, 'deadline zastaví branie nových jobov');
+assert.match(worker, /status: 'queued', locked_at: null[\s\S]{0,120}\.eq\('status', 'processing'\)/, 'nedokončené joby sa vrátia do fronty');
 console.log('WORKER STATIC OK');
