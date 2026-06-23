@@ -22,7 +22,7 @@ Legenda stavu: ⬜ todo · 🟡 prebieha · ✅ hotové a otestované · 🚧 bl
 | 12 | Správne akcie autor/príjemca (+ dôvod odmietnutia) | ⬜ |
 | 13 | Android testy čítajú package z konfigurácie | ✅ |
 | 14 | Plánované pripomienky = vysoká push priorita | ⬜ |
-| — | CI (GitHub Actions) | ⬜ |
+| — | CI (GitHub Actions) | 🟡 pripravené v `ci/ci.yml`; aktivácia blokovaná (token bez `workflow` scope) |
 | — | Android instrumentation / runtime matica | 🚧 (emulátor/zariadenie) |
 | — | Merge do main + deploy + reporty | ⬜ |
 
@@ -71,3 +71,13 @@ Legenda stavu: ⬜ todo · 🟡 prebieha · ✅ hotové a otestované · 🚧 bl
 **Commands / results:** `npm run audit` → OK (exit 0).
 
 **Next action:** Issue 7 (lokálne alarmy: reminders_sent / max_reminders / interval) v app-ui.js.
+
+## Cyklus 3 — Issue 13 (Android package z konfigurácie)
+- `scripts/check-android-package.mjs` + `tests/android-package.test.mjs`: odvodia package z `android/app/build.gradle` (`applicationId`) a overia, že `namespace` aj `capacitor.config.ts` `appId` sa zhodujú; žiadny natvrdo zapísaný/driftujúci package. Zapojené do `npm test` aj nový `check:android` v `audit`.
+- `npm run audit` → OK. Commit `7d55227`.
+
+## Cyklus 4 — CI (GitHub Actions)
+- Pripravený workflow: web job (`npm ci` + `npm run audit` + `npm audit --audit-level=high`) a Android job (build + `cap sync` + `assembleDebug`, artifact APK). `npm audit --audit-level=high` lokálne → 0 zraniteľností.
+- **BLOKÁTOR (GitHub permission):** push súborov do `.github/workflows/` GitHub odmieta, lebo token nemá `workflow` scope (má: gist, read:org, repo). Workflow je preto uložený v **`ci/ci.yml`** (pushnuteľné) + návod na aktiváciu (skopírovať do `.github/workflows/ci.yml` cez web UI, alebo `gh auth refresh -s workflow`). Nepodvádzam – CI „passes" sa nedá potvrdiť, kým nie je aktivované.
+
+**Next action:** Issue 7 (lokálne alarmy: limity pripomienok) v app-ui.js.
