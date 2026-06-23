@@ -29,8 +29,10 @@ const firstRejected = assert.rejects(
   'blokovaný prvý účet musí skončiť rozpoznateľnou chybou',
 );
 
-// Nechaj prvý init vstúpiť do indexedDB.open(), potom simuluj odhlásenie.
-await Promise.resolve();
+// Počkaj deterministicky, kým serializačná fronta skutočne vstúpi do indexedDB.open().
+for (let i = 0; i < 20 && requests.length < 1; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
 assert.equal(requests.length, 1, 'prvý účet musí mať rozpracované otvorenie databázy');
 
 // Odhlásenie nesmie čakať na blokovaný open a nový účet sa môže zaradiť hneď.
