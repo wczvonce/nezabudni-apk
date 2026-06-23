@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.2.2",
   "type": "module",
-  "description": "Nezabudni testovacia – spoločné pripomienky pre Ivana a Dominiku",
+  "description": "Nezabudni testovacia – spoločné pripomienky",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
@@ -12,7 +12,7 @@
     "cap:android": "npx cap open android",
     "cap:ios": "npx cap open ios",
     "validate": "node scripts/validate.mjs && npm run build",
-    "test": "node tests/public-config.test.mjs && node tests/auth-deadlock.test.mjs && node tests/startup-resilience.test.mjs && node tests/init-single-flight.test.mjs && node tests/account-isolation.test.mjs && node tests/sql-migration.test.mjs && node tests/sql-behavior.test.mjs && node tests/null-pair-guard.test.mjs && node tests/recurrence-safety.test.mjs && node tests/edit-reschedule.test.mjs && node tests/offline-snooze-absolute.test.mjs && node tests/terminal-edit-guard.test.mjs && node tests/reject-and-hide.test.mjs && node tests/task-service.test.mjs && node tests/ui-alarm.test.mjs && node tests/reminder-limits.test.mjs && node tests/worker-static.test.mjs && node tests/android-package.test.mjs",
+    "test": "node tests/public-config.test.mjs && node tests/auth-deadlock.test.mjs && node tests/startup-resilience.test.mjs && node tests/startup-task-service.test.mjs && node tests/init-single-flight.test.mjs && node tests/account-isolation.test.mjs && node tests/sql-migration.test.mjs && node tests/sql-behavior.test.mjs && node tests/null-pair-guard.test.mjs && node tests/recurrence-safety.test.mjs && node tests/edit-reschedule.test.mjs && node tests/offline-snooze-absolute.test.mjs && node tests/terminal-edit-guard.test.mjs && node tests/terminal-complete-guard.test.mjs && node tests/reject-and-hide.test.mjs && node tests/task-service.test.mjs && node tests/ui-alarm.test.mjs && node tests/reminder-limits.test.mjs && node tests/worker-static.test.mjs && node tests/android-package.test.mjs",
     "check:worker": "node scripts/check-worker.mjs",
     "check:android": "node scripts/check-android-package.mjs",
     "audit": "npm run test && npm run check:worker && npm run check:android && npm run validate"
