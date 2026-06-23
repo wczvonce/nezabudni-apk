@@ -10,7 +10,7 @@ Legenda stavu: ⬜ todo · 🟡 prebieha · ✅ hotové a otestované · 🚧 bl
 |---|---|---|
 | 1 | Startup nesmie odhlásiť pri OneSignal/sync zlyhaní | ✅ |
 | 2 | Push worker — ohraničené dávky / deadline | ✅ |
-| 3 | Terminálne úlohy — konzistentné editovanie | ⬜ |
+| 3 | Terminálne úlohy — konzistentné editovanie | ✅ (UI read-only + migrácia 006 backend guard) |
 | 4 | Edit aktívnej úlohy → reset alarmu | ✅ (api_update_task + version-keyed alarm + test) |
 | 5 | Opakujúca séria sa nesmie zaseknúť | ✅ (001+004 + regresný test) |
 | 6 | Offline snooze/complete = absolútne časy | ✅ (migrácia 005 + klient + pglite test) |
