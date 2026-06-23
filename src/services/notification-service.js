@@ -21,12 +21,23 @@ function handleSubscriptionChange(event) {
   }
 }
 
+// Issue 8: keď je appka v popredí, NEZOBRAZUJ natívnu notifikáciu – appka má
+// vlastné in-app upozornenie (alarm/modal). Tak sa nezobrazia dve naraz.
+// V pozadí/zatvorená sa foregroundWillDisplay nespustí, takže natívny push funguje.
+function handleForegroundWillDisplay(event) {
+  event?.preventDefault?.();
+  const notification = event?.getNotification?.() ?? event?.notification;
+  const data = notification?.additionalData || {};
+  if (data.task_id) clickHandler?.({ taskId: data.task_id, action: 'foreground' });
+}
+
 // Single-flight inicializácia: súbežní volajúci čakajú na ten istý beh,
 // listenery sa registrujú raz, neúspešný beh je znova spustiteľný (Issue 10).
 const ensureInitialized = singleFlight(async () => {
   if (import.meta.env.DEV) OneSignal.Debug.setLogLevel(LogLevel.Verbose);
   await OneSignal.initialize(CONFIG.oneSignalAppId);
   OneSignal.Notifications.addEventListener('click', handleNotificationClick);
+  OneSignal.Notifications.addEventListener('foregroundWillDisplay', handleForegroundWillDisplay);
   OneSignal.User.pushSubscription.addEventListener('change', handleSubscriptionChange);
   initialized = true;
 });

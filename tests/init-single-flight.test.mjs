@@ -36,6 +36,9 @@ const ns = fs.readFileSync(new URL('../src/services/notification-service.js', im
 assert.match(ns, /singleFlight\(/, 'inicializácia je single-flight');
 assert.match(ns, /addEventListener\('click', handleNotificationClick\)/, 'click listener: stabilná referencia, raz');
 assert.match(ns, /addEventListener\('change', handleSubscriptionChange\)/, 'subscription listener: stabilná referencia, raz');
+// Issue 8: foreground listener potlačí natívnu notifikáciu (žiadne dve naraz).
+assert.match(ns, /addEventListener\('foregroundWillDisplay', handleForegroundWillDisplay\)/, 'foreground listener registrovaný raz');
+assert.match(ns, /event\?\.preventDefault\?\.\(\)/, 'foreground potlačí natívnu notifikáciu');
 assert.doesNotMatch(ns, /if \(!subscriptionListenerBound\)/, 'odstránený starý duplicitný guard');
 // Zachované korektné OneSignal API (nesmie sa vrátiť obsolete) – Project context.
 assert.doesNotMatch(ns, /addClickListener/, 'žiadne obsolete addClickListener');
