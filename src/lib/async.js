@@ -55,3 +55,24 @@ export async function withAbortTimeout(operation, {
     abortPromise.catch(() => {});
   }
 }
+
+/**
+ * Vráti funkciu so single-flight sémantikou: súbežní volajúci čakajú na ten istý
+ * beh; po úspechu sa výsledok cachuje; po zlyhaní sa beh znova spustí (Issue 10).
+ * „Úspech" (a teda cache) nastane iba po úplnom dobehnutí factory – nikdy pri
+ * čiastočnej inicializácii.
+ */
+export function singleFlight(factory) {
+  let inflight = null;
+  let settled = false;
+  let cached;
+  return function run(...args) {
+    if (settled) return Promise.resolve(cached);
+    if (inflight) return inflight;
+    inflight = Promise.resolve()
+      .then(() => factory(...args))
+      .then((value) => { settled = true; cached = value; inflight = null; return value; })
+      .catch((error) => { inflight = null; throw error; });
+    return inflight;
+  };
+}

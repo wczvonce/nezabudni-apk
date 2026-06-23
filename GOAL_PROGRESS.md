@@ -17,7 +17,7 @@ Legenda stavu: ⬜ todo · 🟡 prebieha · ✅ hotové a otestované · 🚧 bl
 | 7 | Lokálne alarmy rešpektujú limity pripomienok | ⬜ |
 | 8 | Foreground — nie dve notifikácie | ⬜ |
 | 9 | Sync operácie potrebujú timeouty | ✅ |
-| 10 | Inicializácia a listenery iba raz | 🟡 |
+| 10 | Inicializácia a listenery iba raz | ✅ |
 | 11 | Queued joby re-evaluovať pred spustením | ⬜ |
 | 12 | Správne akcie autor/príjemca (+ dôvod odmietnutia) | ⬜ |
 | 13 | Android testy čítajú package z konfigurácie | ⬜ |
@@ -58,3 +58,16 @@ Legenda stavu: ⬜ todo · 🟡 prebieha · ✅ hotové a otestované · 🚧 bl
 **Remaining risks:** zotaviteľný stav pri kritickom prechodnom zlyhaní zatiaľ používa `showAuth` s connection-hláškou (bez dedikovaného „Skúsiť znova" tlačidla) — dorieši sa vo finálnom verifikačnom cykle / Issue 10. Runtime overenie na zariadení čaká na emulátor.
 
 **Next action:** Issue 10 (single-flight inicializácia + idempotentná registrácia listenerov v notification-service) — nadväzuje na startup.
+
+## Cyklus 2 — Issue 10 (inicializácia a listenery iba raz)
+**Root cause:** `initializeNotifications` používal `if (!initialized)` guard. Dvaja súbežní volajúci (boot + requestPermission/registerDevice) ho obídu pred dokončením `await OneSignal.initialize` → dvojitá inicializácia a **duplicitné** registrácie listenerov (`click`, `pushSubscription change`).
+
+**Files modified / added:**
+- `src/lib/async.js` — pridaný `singleFlight(factory)`: súbežní volajúci zdieľajú jeden beh, úspech sa cachuje, zlyhanie je znova spustiteľné, „settled" len po úplnom dobehnutí.
+- `src/services/notification-service.js` — inicializácia cez `ensureInitialized = singleFlight(...)`; `handleNotificationClick` / `handleSubscriptionChange` sú stabilné referencie registrované raz. Zachované `addEventListener('click', ...)` + `hasPermission()`.
+
+**Tests added:** `tests/init-single-flight.test.mjs` — súbežné=1 beh; cache po úspechu; retry po zlyhaní; statické kontroly.
+
+**Commands / results:** `npm run audit` → OK (exit 0).
+
+**Next action:** Issue 7 (lokálne alarmy: reminders_sent / max_reminders / interval) v app-ui.js.

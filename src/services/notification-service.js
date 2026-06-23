@@ -2,11 +2,34 @@ import OneSignal, { LogLevel } from '@onesignal/capacitor-plugin';
 import { platform, platformLabel } from '../lib/platform.js';
 import { CONFIG } from '../config.js';
 import { supabase } from '../lib/supabase.js';
+import { singleFlight } from '../lib/async.js';
 
 let initialized = false;
 let currentSubscriptionId = null;
 let clickHandler = null;
-let subscriptionListenerBound = false;
+
+// Stabilné referencie listenerov – aby sa registrovali práve raz (Issue 10).
+function handleNotificationClick(event) {
+  const data = event?.notification?.additionalData || {};
+  clickHandler?.({ taskId: data.task_id || null, action: event?.result?.actionId || 'open' });
+}
+
+function handleSubscriptionChange(event) {
+  currentSubscriptionId = event?.current?.id || null;
+  if (currentSubscriptionId && supabase) {
+    registerCurrentDevice().catch((error) => console.warn('Push subscription re-registration failed', error));
+  }
+}
+
+// Single-flight inicializácia: súbežní volajúci čakajú na ten istý beh,
+// listenery sa registrujú raz, neúspešný beh je znova spustiteľný (Issue 10).
+const ensureInitialized = singleFlight(async () => {
+  if (import.meta.env.DEV) OneSignal.Debug.setLogLevel(LogLevel.Verbose);
+  await OneSignal.initialize(CONFIG.oneSignalAppId);
+  OneSignal.Notifications.addEventListener('click', handleNotificationClick);
+  OneSignal.User.pushSubscription.addEventListener('change', handleSubscriptionChange);
+  initialized = true;
+});
 
 function deviceInstallId() {
   const key = 'nezabudni-v19-device-install-id';
@@ -20,24 +43,7 @@ export async function initializeNotifications(onNotificationClick) {
   if (!platform.isNative || !CONFIG.oneSignalAppId) {
     return diagnostics();
   }
-  if (!initialized) {
-    if (import.meta.env.DEV) OneSignal.Debug.setLogLevel(LogLevel.Verbose);
-    await OneSignal.initialize(CONFIG.oneSignalAppId);
-    OneSignal.Notifications.addEventListener('click', (event) => {
-      const data = event?.notification?.additionalData || {};
-      clickHandler?.({ taskId: data.task_id || null, action: event?.result?.actionId || 'open' });
-    });
-    if (!subscriptionListenerBound) {
-      OneSignal.User.pushSubscription.addEventListener('change', (event) => {
-        currentSubscriptionId = event?.current?.id || null;
-        if (currentSubscriptionId && supabase) {
-          registerCurrentDevice().catch((error) => console.warn('Push subscription re-registration failed', error));
-        }
-      });
-      subscriptionListenerBound = true;
-    }
-    initialized = true;
-  }
+  await ensureInitialized();
   currentSubscriptionId = await OneSignal.User.pushSubscription.getIdAsync();
   return diagnostics();
 }
