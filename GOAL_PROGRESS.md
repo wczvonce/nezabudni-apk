@@ -13,7 +13,7 @@ Legenda stavu: ⬜ todo · 🟡 prebieha · ✅ hotové a otestované · 🚧 bl
 | 3 | Terminálne úlohy — konzistentné editovanie | ⬜ |
 | 4 | Edit aktívnej úlohy → reset alarmu | ✅ (api_update_task + version-keyed alarm + test) |
 | 5 | Opakujúca séria sa nesmie zaseknúť | ✅ (001+004 + regresný test) |
-| 6 | Offline snooze/complete = absolútne časy | ⬜ |
+| 6 | Offline snooze/complete = absolútne časy | ✅ (migrácia 005 + klient + pglite test) |
 | 7 | Lokálne alarmy rešpektujú limity pripomienok | ✅ |
 | 8 | Foreground — nie dve notifikácie | ⬜ |
 | 9 | Sync operácie potrebujú timeouty | ✅ |

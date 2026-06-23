@@ -270,8 +270,10 @@ export async function acknowledgeTask(task) {
 
 export async function snoozeTask(task, minutes) {
   const snapshot = contextSnapshot();
-  const payload = { p_task_id: task.id, p_minutes: Number(minutes), p_mutation_id: uuid() };
   const snoozedUntil = new Date(Date.now() + Number(minutes) * 60_000).toISOString();
+  // Issue 6: pošli ABSOLÚTNY čas (vypočítaný teraz), aby ho server pri neskorej
+  // synchronizácii neprepočítal zo svojho now() (drift offline snooze).
+  const payload = { p_task_id: task.id, p_minutes: Number(minutes), p_mutation_id: uuid(), p_snoozed_until: snoozedUntil };
   const optimistic = { ...task, snoozed_until: snoozedUntil, reminders_sent: 0, updated_at: new Date().toISOString(), version: Number(task.version) + 1 };
   if (snapshot.context.demoMode) { await snapshot.db.putTasks([optimistic]); return { task: optimistic, queued: false }; }
   if (!navigator.onLine) return queueMutation('snooze', payload, optimistic, snapshot);

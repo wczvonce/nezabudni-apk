@@ -30,6 +30,7 @@ try {
   let sql=await readFile('supabase/migrations/001_schema.sql','utf8');
   sql=sql.replace(/create extension if not exists pgcrypto;\s*/i,'');
   await db.exec(sql);
+  await db.exec(await readFile('supabase/migrations/005_offline_absolute_times.sql','utf8'));
   await db.exec(`
     insert into auth.users values ('${IVAN}','i@example.com'),('${DOMI}','d@example.com');
     insert into public.profiles(id,display_name,email) values ('${IVAN}','Ivan','i@example.com'),('${DOMI}','Dominika','d@example.com');
