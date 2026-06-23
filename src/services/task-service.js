@@ -75,7 +75,8 @@ export async function fetchTasks() {
   if (error) throw error;
   assertCurrent(snapshot);
   // Issue 12: vynechaj úlohy, ktoré si používateľ odstránil zo svojho zoznamu.
-  const { data: hiddenRows } = await sb.from('task_hidden').select('task_id');
+  const { data: hiddenRows, error: hiddenError } = await sb.from('task_hidden').select('task_id');
+  if (hiddenError) console.warn('Filter skrytých úloh zlyhal; zobrazujem všetky úlohy', hiddenError.message);
   const hidden = new Set((hiddenRows || []).map((r) => r.task_id));
   const visible = (data || []).filter((t) => !hidden.has(t.id));
   await snapshot.db.replaceTasks(visible);

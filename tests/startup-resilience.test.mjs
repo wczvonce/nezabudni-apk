@@ -66,6 +66,7 @@ const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
 assert.match(main, /classifyStartupError/, 'main.js klasifikuje štartové chyby');
 assert.doesNotMatch(main, /Nastavenie účtu nie je dokončené/, 'odstránená bounce-to-login po showApp');
 assert.match(main, /classifyStartupError\(error\) === 'auth'/, 'odhlásenie iba pri auth chybe');
+assert.match(main, /for \(let attempt = 0; attempt < 2/, 'štart sa pri prechodnom zlyhaní ešte raz skúsi (self-healing)');
 assert.match(main, /NESMÚ odhlásiť/, 'best-effort fáza: chyby neodhlasujú');
 // V boot-fail vetve sa už nesmie volať resetState (relácia ostáva).
 assert.doesNotMatch(main, /resetState\(\);\s*\n\s*showAuth\(true, `Nastavenie/, 'boot zlyhanie už nemaže stav');

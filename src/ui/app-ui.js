@@ -209,6 +209,23 @@ async function handleMainClick(event) {
   if (action) await handleSettingAction(action.dataset.settingAction);
 }
 
+function translateTaskError(message) {
+  const m = String(message || '');
+  const map = {
+    TASK_NOT_EDITABLE: 'Hotovú alebo zrušenú úlohu nemožno upraviť.',
+    REJECTION_REASON_REQUIRED: 'Uveď dôvod odmietnutia.',
+    REJECTION_REASON_TOO_LONG: 'Dôvod odmietnutia je príliš dlhý.',
+    TASK_STILL_ACTIVE: 'Aktívnu úlohu nemožno odstrániť zo zoznamu.',
+    ONLY_ASSIGNEE_CAN_REJECT: 'Odmietnuť môže iba príjemca úlohy.',
+    TASK_CONFLICT: 'Úloha bola medzitým zmenená. Obnov ju a skús znova.',
+    TASK_DELETED: 'Úloha už bola vymazaná.',
+    TASK_NOT_FOUND: 'Úloha sa nenašla.',
+    INVALID_ASSIGNEE: 'Neplatný príjemca úlohy.',
+  };
+  for (const [k, v] of Object.entries(map)) if (m.includes(k)) return v;
+  return m;
+}
+
 // Issue 12: príjemca odmietne úlohu s povinným dôvodom.
 async function rejectTaskFromUi(taskId) {
   const task = getState().tasks.find((t) => t.id === taskId); if (!task) return;
@@ -219,7 +236,7 @@ async function rejectTaskFromUi(taskId) {
     await rejectTask(task, reason);
     await refreshFromCacheOrCloud();
     toast('Úloha odmietnutá');
-  } catch (error) { toast(error.message || 'Odmietnutie zlyhalo', true); }
+  } catch (error) { toast(translateTaskError(error.message) || 'Odmietnutie zlyhalo', true); }
 }
 
 // Issue 12: príjemca odstráni terminálnu úlohu zo svojho zoznamu.
@@ -229,7 +246,7 @@ async function hideTaskFromUi(taskId) {
     await hideTaskForSelf(task);
     await refreshFromCacheOrCloud();
     toast('Odstránené z tvojho zoznamu');
-  } catch (error) { toast(error.message || 'Odstránenie zlyhalo', true); }
+  } catch (error) { toast(translateTaskError(error.message) || 'Odstránenie zlyhalo', true); }
 }
 
 function renderSettings() {
@@ -322,7 +339,7 @@ async function saveTaskFromForm(event) {
     closeTaskSheet();
     if (result.attachmentErrors?.length) toast(`Úloha je uložená, ale ${result.attachmentErrors.length} príloh sa nepodarilo nahrať`, true);
     else toast(result.queued ? 'Uložené offline – čaká na synchronizáciu' : 'Úloha uložená');
-  } catch (error) { dom.fileProgress.textContent = ''; toast(error.message || 'Uloženie zlyhalo', true); }
+  } catch (error) { dom.fileProgress.textContent = ''; toast(translateTaskError(error.message) || 'Uloženie zlyhalo', true); }
   finally {
     taskFormBusy = false;
     if (saveButton) saveButton.disabled = false;

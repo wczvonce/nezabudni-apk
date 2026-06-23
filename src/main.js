@@ -148,40 +148,54 @@ async function bootUser(user, generation) {
   const promise = (async () => {
     showLoading(true);
 
-    // === KRITICKÁ FÁZA: bez nej nevieme zobraziť appku ===
+    // === KRITICKÁ FÁZA: bez nej nevieme zobraziť appku. Prechodné zlyhanie sa
+    //     ešte raz tichom skúsi (self-healing); auth zlyhanie sa neskúša znova. ===
     let identity;
-    try {
-      await closeCurrentContext();
-      if (!isCurrentTransition(generation, user.id)) return;
+    let criticalError = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      criticalError = null;
+      try {
+        await closeCurrentContext();
+        if (!isCurrentTransition(generation, user.id)) return;
 
-      identity = await withTimeout(
-        loadIdentity(user.id),
-        'Načítanie profilu trvá príliš dlho. Skontroluj internet a nastavenie Supabase.',
-      );
-      if (!isCurrentTransition(generation, user.id)) return;
+        identity = await withTimeout(
+          loadIdentity(user.id),
+          'Načítanie profilu trvá príliš dlho. Skontroluj internet a nastavenie Supabase.',
+        );
+        if (!isCurrentTransition(generation, user.id)) return;
 
-      await withTimeout(
-        initTaskService({ userId: user.id, demoMode: false, pairId: identity.pair.id }),
-        'Lokálna databáza sa nepodarila otvoriť.',
-      );
-      if (!isCurrentTransition(generation, user.id)) return;
+        await withTimeout(
+          initTaskService({ userId: user.id, demoMode: false, pairId: identity.pair.id }),
+          'Lokálna databáza sa nepodarila otvoriť.',
+        );
+        if (!isCurrentTransition(generation, user.id)) return;
 
-      const cached = await cachedTasks();
+        const cached = await cachedTasks();
+        if (!isCurrentTransition(generation, user.id)) return;
+        resetTransientUi();
+        setState({ demoMode: false, user, ...identity, tasks: cached, booted: true, syncError: null });
+        showApp();
+        break;
+      } catch (error) {
+        criticalError = error;
+        if (classifyStartupError(error) === 'auth') break;
+        // Prechodná chyba: krátke čakanie a tichý opätovný pokus.
+        if (attempt === 0 && isCurrentTransition(generation, user.id)) {
+          await new Promise((resolve) => setTimeout(resolve, 2500));
+        }
+      }
+    }
+    if (criticalError) {
       if (!isCurrentTransition(generation, user.id)) return;
-      resetTransientUi();
-      setState({ demoMode: false, user, ...identity, tasks: cached, booted: true, syncError: null });
-      showApp();
-    } catch (error) {
-      if (!isCurrentTransition(generation, user.id)) return;
-      console.error('Startup critical phase failed', error);
+      console.error('Startup critical phase failed', criticalError);
       // Iba POTVRDENÉ zlyhanie autentifikácie smie odhlásiť. Prechodná chyba
       // (sieť, timeout, DB) ponechá platnú reláciu a ukáže zotaviteľný stav.
-      if (classifyStartupError(error) === 'auth') {
+      if (classifyStartupError(criticalError) === 'auth') {
         await showSignedOut(generation);
       } else {
         showLoading(false);
         resetTransientUi();
-        showAuth(true, `Štart sa nepodaril (dočasný problém): ${error.message} Tvoje prihlásenie je zachované — skús to znova.`);
+        showAuth(true, `Štart sa nepodaril (dočasný problém): ${criticalError.message} Tvoje prihlásenie je zachované — skús to znova.`);
       }
       return;
     }
