@@ -108,8 +108,11 @@ Deno.serve(async (request) => {
           headings: { en: message.heading, sk: message.heading },
           contents: { en: message.body, sk: message.body },
           data: { task_id: job.task_id, kind: job.kind },
-          priority: task?.priority === 3 ? 10 : 5,
-          ios_interruption_level: task?.priority === 3 ? 'time_sensitive' : 'active',
+          // Plánované pripomienky (task_pre/due/repeat) sú časovo citlivé – nasadíme
+          // vysokú technickú prioritu (FCM high / OneSignal priority 10), aby zobudili
+          // zariadenie z Doze. Ostatné správy ostávajú normálne (nezneužívame prioritu).
+          priority: (isScheduledReminder(job.kind) || task?.priority === 3) ? 10 : 5,
+          ios_interruption_level: (isScheduledReminder(job.kind) || task?.priority === 3) ? 'time_sensitive' : 'active',
           ttl: notificationTtl(job, task),
           // Rovnaký UUID sa používa pri každom retry tohto jobu. OneSignal tak
           // nevytvorí duplicitný push ani po timeout-e alebo páde workera.
@@ -135,6 +138,11 @@ Deno.serve(async (request) => {
   return new Response(JSON.stringify({ processed: results.length, recurrenceWarning, results }), { status: 200, headers: corsHeaders });
 });
 
+
+// Plánované, časovo citlivé pripomienky, ktoré majú spoľahlivo zobudiť zariadenie.
+function isScheduledReminder(kind: NotificationJob['kind']): boolean {
+  return kind === 'task_pre' || kind === 'task_due' || kind === 'task_repeat';
+}
 
 function notificationTtl(job: NotificationJob, task: Task | null): number {
   if (job.kind === 'test') return 300;

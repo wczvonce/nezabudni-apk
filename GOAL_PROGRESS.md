@@ -21,7 +21,7 @@ Legenda stavu: ⬜ todo · 🟡 prebieha · ✅ hotové a otestované · 🚧 bl
 | 11 | Queued joby re-evaluovať pred spustením | ⬜ |
 | 12 | Správne akcie autor/príjemca (+ dôvod odmietnutia) | ⬜ |
 | 13 | Android testy čítajú package z konfigurácie | ✅ |
-| 14 | Plánované pripomienky = vysoká push priorita | ⬜ |
+| 14 | Plánované pripomienky = vysoká push priorita | ✅ (kód+test; deploy neskôr) |
 | — | CI (GitHub Actions) | 🟡 pripravené v `ci/ci.yml`; aktivácia blokovaná (token bez `workflow` scope) |
 | — | Android instrumentation / runtime matica | 🚧 (emulátor/zariadenie) |
 | — | Merge do main + deploy + reporty | ⬜ |
@@ -89,3 +89,11 @@ Legenda stavu: ⬜ todo · 🟡 prebieha · ✅ hotové a otestované · 🚧 bl
 **Result:** `npm run audit` → OK. 
 
 **Next action:** Issue 14 (vysoká push priorita pre plánované pripomienky) v push-worker — payload, testovateľné staticky.
+
+## Cyklus 6 — Issue 14 (vysoká push priorita pre plánované pripomienky)
+**Root cause:** payload dával `priority: 10` len pri `task.priority === 3` (užívateľská urgentnosť). Plánované pripomienky pri normálnej priorite išli ako FCM normal → Doze ich mohol oneskoriť.
+**Files:** `supabase/functions/push-worker/index.ts` — pridaný `isScheduledReminder(kind)` (task_pre/due/repeat); `priority`/`ios_interruption_level` = high pre pripomienky alebo `priority===3`, inak normal (task_assigned/completed/test nie sú zbytočne high). Idempotencia (`idempotency_key: job.id`) zachovaná.
+**Tests:** rozšírený `tests/worker-static.test.mjs` (isScheduledReminder, reminder kinds, priorita 10). `check:worker` (esbuild compile) → OK.
+**Pozn.:** nasadenie opraveného workera prebehne vo fáze deploy (`supabase functions deploy push-worker`).
+
+**Next action:** Issue 11 (re-eval queued jobs) — worker už má časť (versionMatch/effectiveDue/graceMs/live status recheck); doplním + otestujem. Potom backend Issue 12/5/2/3/4/6/8.
