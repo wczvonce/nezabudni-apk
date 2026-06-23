@@ -21,6 +21,7 @@ import {
 import { signOut } from '../services/auth.js';
 import { platform } from '../lib/platform.js';
 import { withAbortTimeout } from '../lib/async.js';
+import { localAlarmAllowed } from '../lib/reminders.js';
 
 const SYNC_STEP_TIMEOUT_MS = 20_000;
 const dom = {};
@@ -36,6 +37,7 @@ let settingActionBusy = false;
 let pendingNotificationTaskId = null;
 const taskMutationBusy = new Set();
 const shownAlarmAt = new Map();
+const shownAlarmCount = new Map();
 
 function $(id) { return document.getElementById(id); }
 function esc(value) {
@@ -361,16 +363,25 @@ function checkDueAlarm() {
   const state = getState(); if (!state.user || alarmTask) return;
   const now = Date.now();
   const task = state.tasks.find((t) => {
-    if (t.status !== 'pending' || t.deleted_at || t.assigned_to !== state.user.id || t.acknowledged_at || dueMs(t) > now) return false;
     const alarmKey = `${t.id}:${t.version}:${effectiveDue(t)}`;
-    const lastShown = shownAlarmAt.get(alarmKey) || 0;
-    return now - lastShown >= Math.max(60_000, Number(t.reminder_interval_seconds || 60) * 1000);
+    return localAlarmAllowed(t, {
+      userId: state.user.id,
+      now,
+      dueMs: dueMs(t),
+      lastShownAt: shownAlarmAt.get(alarmKey) || 0,
+      shownCount: shownAlarmCount.get(alarmKey) || 0,
+    });
   });
   if (!task) return;
   const alarmKey = `${task.id}:${task.version}:${effectiveDue(task)}`;
   shownAlarmAt.set(alarmKey, now);
+  shownAlarmCount.set(alarmKey, (shownAlarmCount.get(alarmKey) || 0) + 1);
   // Dlhodobo otvorená aplikácia nesmie hromadiť neobmedzenú históriu.
-  if (shownAlarmAt.size > 500) shownAlarmAt.delete(shownAlarmAt.keys().next().value);
+  if (shownAlarmAt.size > 500) {
+    const oldest = shownAlarmAt.keys().next().value;
+    shownAlarmAt.delete(oldest);
+    shownAlarmCount.delete(oldest);
+  }
   alarmTask = task;
   dom.alarmTitle.textContent = task.title;
   dom.alarmNote.textContent = task.notes || `${fmtDate(effectiveDue(task))} ${fmtTime(effectiveDue(task))}`;
@@ -404,6 +415,7 @@ export function resetTransientUi() {
   alarmTask = null;
   pendingNotificationTaskId = null;
   shownAlarmAt.clear();
+  shownAlarmCount.clear();
   taskMutationBusy.clear();
   taskFormBusy = false;
   settingActionBusy = false;

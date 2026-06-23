@@ -14,7 +14,7 @@ Legenda stavu: ⬜ todo · 🟡 prebieha · ✅ hotové a otestované · 🚧 bl
 | 4 | Edit aktívnej úlohy → reset alarmu | ⬜ |
 | 5 | Opakujúca séria sa nesmie zaseknúť | ⬜ |
 | 6 | Offline snooze/complete = absolútne časy | ⬜ |
-| 7 | Lokálne alarmy rešpektujú limity pripomienok | ⬜ |
+| 7 | Lokálne alarmy rešpektujú limity pripomienok | ✅ |
 | 8 | Foreground — nie dve notifikácie | ⬜ |
 | 9 | Sync operácie potrebujú timeouty | ✅ |
 | 10 | Inicializácia a listenery iba raz | ✅ |
@@ -81,3 +81,11 @@ Legenda stavu: ⬜ todo · 🟡 prebieha · ✅ hotové a otestované · 🚧 bl
 - **BLOKÁTOR (GitHub permission):** push súborov do `.github/workflows/` GitHub odmieta, lebo token nemá `workflow` scope (má: gist, read:org, repo). Workflow je preto uložený v **`ci/ci.yml`** (pushnuteľné) + návod na aktiváciu (skopírovať do `.github/workflows/ci.yml` cez web UI, alebo `gh auth refresh -s workflow`). Nepodvádzam – CI „passes" sa nedá potvrdiť, kým nie je aktivované.
 
 **Next action:** Issue 7 (lokálne alarmy: limity pripomienok) v app-ui.js.
+
+## Cyklus 5 — Issue 7 (lokálne alarmy rešpektujú limity)
+**Root cause:** `checkDueAlarm` opakovane zobrazoval in-app alarm každý interval bez ohľadu na `max_reminders` — lokálny kanál nerešpektoval rozpočet pripomienok.
+**Files:** `src/lib/reminders.js` (nový, čistá logika: `localAlarmAllowed`, `reminderIntervalMs`, terminálny stav, rozpočet); `src/ui/app-ui.js` — `checkDueAlarm` používa `localAlarmAllowed` + lokálne počítadlo `shownAlarmCount` (cap na `max_reminders`), čistené v `resetTransientUi`.
+**Tests:** `tests/reminder-limits.test.mjs` — hranice max_reminders (0/1/posledná/nad limit/staré dáta), terminálne stavy, priradenie, interval (min 60s, default), neplatný interval neobíde limit, statická kontrola app-ui.
+**Result:** `npm run audit` → OK. 
+
+**Next action:** Issue 14 (vysoká push priorita pre plánované pripomienky) v push-worker — payload, testovateľné staticky.
