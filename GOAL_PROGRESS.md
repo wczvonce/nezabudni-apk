@@ -97,3 +97,11 @@ Legenda stavu: ⬜ todo · 🟡 prebieha · ✅ hotové a otestované · 🚧 bl
 **Pozn.:** nasadenie opraveného workera prebehne vo fáze deploy (`supabase functions deploy push-worker`).
 
 **Next action:** Issue 11 (re-eval queued jobs) — worker už má časť (versionMatch/effectiveDue/graceMs/live status recheck); doplním + otestujem. Potom backend Issue 12/5/2/3/4/6/8.
+
+---
+
+## Post-stabilizácia: adversariálny bug-hunt (commit f2a1e97, APK v1.0.5)
+Multi-agent Workflow (21 agentov) → 16 podozrení / 10 confirmed. Po triáži **5 opráv**, **2 false-positive**.
+**Opravené:** (1) SECURITY critical – NULL-pair trojhodnotová logika → migrácia **008** (`is distinct from` na 7 SECURITY DEFINER funkciách; nasadené + naživo overené 7/7 hardened). (2) CONCURRENCY critical – `flushOutbox`/`fetchTasks` teraz ctia `AbortSignal` (oneskorený sync neprepíše novší stav); `withAbortTimeout` pohltí neskoré dobehnutie. (3) ERRORS high – `queueMutation` rollback osirelej mutácie. (4) LOGIC high – nový tab „Odmietnuté". (5) LOGIC medium – foreground nezdvojuje notifikáciu (`openTaskSheet`→`closeAlarm`, guard otvoreného sheetu).
+**Zamietnuté:** leak listenerov (singleFlight registruje raz); alarmKey-bez-version (zámerná invalidácia po edite, kryté testom).
+**Tests:** nový `null-pair-guard.test.mjs`; `npm run audit` PASS (0 zraniteľností). **Deploy:** migrácia 008 → `ofwouqpqzcpjnigcgygz`; main fast-forward `f2a1e97`; build(android) `5cf55a0` → release **v1.0.5** (`48c5a639…`).
