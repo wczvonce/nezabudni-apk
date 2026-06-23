@@ -19,7 +19,7 @@ Legenda stavu: ⬜ todo · 🟡 prebieha · ✅ hotové a otestované · 🚧 bl
 | 9 | Sync operácie potrebujú timeouty | ✅ |
 | 10 | Inicializácia a listenery iba raz | ✅ |
 | 11 | Queued joby re-evaluovať pred spustením | ✅ (worker re-eval + regresné testy) |
-| 12 | Správne akcie autor/príjemca (+ dôvod odmietnutia) | ⬜ |
+| 12 | Správne akcie autor/príjemca (+ dôvod odmietnutia) | ✅ (migrácia 007 + RLS + klient + UI) |
 | 13 | Android testy čítajú package z konfigurácie | ✅ |
 | 14 | Plánované pripomienky = vysoká push priorita | ✅ (kód+test; deploy neskôr) |
 | — | CI (GitHub Actions) | 🟡 pripravené v `ci/ci.yml`; aktivácia blokovaná (token bez `workflow` scope) |
