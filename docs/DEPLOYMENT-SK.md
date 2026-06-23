@@ -1,185 +1,206 @@
-# Nasadenie Nezabudni v19
+# Nasadenie Nezabudni testovacia 1.0.6
 
-## 1. Nový Supabase projekt
+## 1. Predpoklady
 
-Nový Supabase projekt je už vytvorený: `ofwouqpqzcpjnigcgygz` (`https://ofwouqpqzcpjnigcgygz.supabase.co`). Starý projekt z predchádzajúcej verzie zostáva nedotknutý.
+- Node.js 22,
+- Java 21,
+- Android SDK 36 a Build Tools 36.0.0,
+- Supabase CLI pre Edge Function,
+- Android Studio pre lokálny build a test zariadenia.
 
-V SQL Editore spusti v tomto poradí:
+Android application ID je `sk.povraznik.nezabudni.test`.
 
-1. `supabase/migrations/001_schema.sql`
-2. vytvor používateľov podľa časti 2,
-3. `supabase/migrations/002_setup_pair_template.sql`
+## 2. Supabase databáza
 
-Ak už bola staršia verzia `001_schema.sql` nasadená, nespúšťaj ju znova naslepo. Namiesto toho spusti aj inkrementálnu migráciu `supabase/migrations/004_deep_audit_fixes.sql`, ktorá aktualizuje dotknuté RPC funkcie bez mazania dát.
+### Úplne nový projekt
 
-## 2. Vytvorenie účtov
+1. Spusti `supabase/migrations/001_schema.sql`.
+2. V Supabase Authentication vytvor oba používateľské účty so silnými heslami.
+3. Uprav a spusti `supabase/migrations/002_setup_pair_template.sql`.
+4. Následne spusti inkrementálne migrácie v poradí:
 
-V Supabase otvor **Authentication → Users → Add user** a vytvor:
+```text
+004_deep_audit_fixes.sql
+005_offline_absolute_times.sql
+006_terminal_edit_guard.sql
+007_reject_and_hide.sql
+008_fix_null_pair_guard.sql
+009_terminal_complete_guard.sql
+```
 
-- `wczvonce@gmail.com` – Ivan Povrazník,
-- `domi.mikloskova@gmail.com` – Dominika.
+### Existujúci testovací projekt
 
-Nastav dočasné silné heslá. Verejnú registráciu aplikácia neponúka.
+Nespúšťaj `001_schema.sql` znova naslepo. Spusti iba ešte neaplikované inkrementálne migrácie 004–009, vždy v číselnom poradí.
 
-Potom spusti `002_setup_pair_template.sql`. Skript vytvorí profily a dvojicu „Ivan a Dominika“.
+Migrácia 009 je povinná pre verziu 1.0.6. Blokuje neplatný prechod terminálnej úlohy, napríklad `rejected → completed`.
 
-## 3. Verejné konfiguračné hodnoty
+Pred migráciou databázy vytvor zálohu a najprv ju over na testovacom projekte.
 
-V Supabase Project Settings → API skopíruj:
+## 3. Používateľské účty
 
-- Project URL,
-- publishable/anon key.
+Aplikácia nemá verejnú registráciu. Účty vytvor ručne v **Authentication → Users**.
 
-Verejné hodnoty sú už zapracované priamo v `src/config.js`. Voliteľne ich môžeš prepísať cez `.env`:
+- používaj silné, unikátne heslá,
+- heslá nepíš do dokumentácie, zdrojového kódu ani GitHub issues,
+- po podozrení na zverejnenie heslo okamžite zmeň a ukonči aktívne sessions.
+
+## 4. Verejná klientská konfigurácia
+
+Frontend používa tieto typy verejných hodnôt:
 
 ```env
 VITE_SUPABASE_URL=https://PROJECT_REF.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY=...
-VITE_ONESIGNAL_APP_ID=...
+VITE_SUPABASE_PUBLISHABLE_KEY=PUBLIC_KEY
+VITE_ONESIGNAL_APP_ID=ONESIGNAL_APP_ID
 VITE_ALLOW_DEMO_MODE=false
 ```
 
-Do frontendu nikdy nevkladaj service-role/secret key ani OneSignal REST API key.
+Supabase publishable key a OneSignal App ID nie sú serverové tajomstvá. Do frontendu však nikdy nevkladaj:
 
-## 4. Nová OneSignal aplikácia
+- Supabase service-role key,
+- databázové heslo,
+- OneSignal REST API key,
+- Firebase Service Account JSON,
+- `PUSH_WORKER_SECRET`.
 
-OneSignal aplikácia **Nezabudni testovacia** je už vytvorená. App ID: `6b9193d7-db17-4e17-9320-4dcb7c410e76`. Jedna OneSignal aplikácia bude obsahovať Android aj iOS platformu.
+## 5. OneSignal a Firebase
 
 ### Android
 
-- Application ID: `sk.povraznik.nezabudni.test`
-- Firebase projekt `nezabudni-testovacia` je už vytvorený,
-- FCM v1 Service Account credentials sú už úspešne nahraté v OneSignal,
-- OneSignal Android platforma je aktívna,
-- OneSignal App ID je už zapracované vo frontende.
+- Application ID musí byť `sk.povraznik.nezabudni.test`.
+- FCM v1 credentials musia byť nahraté priamo v OneSignal.
+- OneSignal App ID musí zodpovedať klientskému nastaveniu.
+- `google-services.json` nie je pre túto OneSignal integráciu sám osebe rozhodujúci; dôležité sú FCM v1 credentials a správny application ID.
 
-Lokálny súbor `android/app/google-services.json` OneSignal Capacitor integrácia v tomto projekte sama osebe nevyžaduje. Rozhodujúce sú správne FCM credentials v OneSignal a správne Application ID.
+### iOS
 
-### iPhone
+Pred iOS nasadením treba dokončiť:
 
-- Bundle ID: `sk.povraznik.nezabudni.test`
-- potrebuješ Apple Developer Program,
-- v OneSignal nastav APNs p8 token,
-- v Xcode skontroluj Push Notifications capability,
-- v Xcode skontroluj Background Modes → Remote notifications,
-- vytvor App Group `group.sk.povraznik.nezabudni.test.onesignal`,
-- pridaj OneSignal Notification Service Extension podľa aktuálneho OneSignal Capacitor návodu,
-- rovnakú App Group pridaj hlavnému targetu aj extension targetu.
+- Apple Developer signing,
+- APNs p8 token v OneSignal,
+- Push Notifications capability,
+- Background Modes → Remote notifications,
+- App Group,
+- OneSignal Notification Service Extension.
 
-Push entitlement a background mode sú už v zdrojovom projekte pripravené, ale signing, App Group a NSE sa musia potvrdiť na Macu v Xcode.
-
-## 5. Tajné serverové hodnoty
-
-Po prihlásení do Supabase CLI najprv prepoj lokálny projekt:
+## 6. Edge Function secrets
 
 ```bash
-supabase link --project-ref ofwouqpqzcpjnigcgygz
-```
-
-Potom v Supabase Edge Function secrets nastav:
-
-```bash
-supabase secrets set ONESIGNAL_REST_API_KEY="NOVY_TAJNY_KLUC"
+supabase link --project-ref PROJECT_REF
+supabase secrets set ONESIGNAL_REST_API_KEY="TAJNY_KLUC"
 supabase secrets set ONESIGNAL_APP_ID="ONESIGNAL_APP_ID"
 supabase secrets set PUSH_WORKER_SECRET="DLHY_NAHODNY_TEXT"
 ```
 
-OneSignal REST API kľúč nesmie byť v `.env`, JavaScripte, ZIP-e ani GitHube.
+Secrets ukladaj iba v Supabase. Necommituj ich do `.env`, SQL šablón ani GitHubu.
 
-## 6. Nasadenie Edge Function
+## 7. Nasadenie push workeru
 
 ```bash
 supabase functions deploy push-worker --no-verify-jwt
 ```
 
-Funkcia nepoužíva používateľský JWT, pretože ju volá Cron. Namiesto neho povinne overuje samostatnú hlavičku `x-worker-secret`. Bez správneho tajného textu vráti HTTP 401.
+Worker overuje hlavičku `x-worker-secret`. Bez správnej hodnoty musí vrátiť HTTP 401.
 
-## 7. Cron
+## 8. Cron
 
-Otvor `supabase/migrations/003_cron_template.sql` a nahraď:
+V `supabase/migrations/003_cron_template.sql` nahraď šablónové hodnoty:
 
-- `YOUR_PROJECT_REF` hodnotou `ofwouqpqzcpjnigcgygz`,
-- `REPLACE_WITH_LONG_RANDOM_SECRET` rovnakou hodnotou ako `PUSH_WORKER_SECRET`.
+- `YOUR_PROJECT_REF`,
+- `REPLACE_WITH_LONG_RANDOM_SECRET`.
 
-Skript ukladá URL aj secret do Supabase Vault. Upravenú verziu s reálnym secretom necommituj do GitHubu ani ju neposielaj v ZIP-e.
+Upravený súbor s reálnym secretom necommituj. Worker má byť volaný každú minútu.
 
-Po spustení sa worker volá každú minútu.
+## 9. Web build
 
-## 8. Netlify – nový samostatný projekt
-
-Na Netlify vytvor nový projekt. Starú stránku `magenta-palmier-e4333d.netlify.app` nemeníš.
-
-Build command:
-
-```text
+```bash
+npm ci
+npm run audit
 npm run build
 ```
 
-Publish directory:
+Výstup je v `dist/`. Webová verzia slúži aj ako náhľad; natívne OneSignal správanie treba overiť v Android/iOS aplikácii.
 
-```text
-dist
-```
-
-V Netlify Environment Variables nastav verejné `VITE_...` hodnoty.
-
-Webová verzia je náhľad a cloudový klient. Natívny OneSignal push sa testuje v Android/iPhone buildoch.
-
-## 9. Android
-
-Nainštaluj Android Studio a Android SDK. Potom:
+## 10. Android debug build
 
 ```bash
 npm ci
 npm run audit
 npx cap sync android
-npx cap open android
+cd android
+chmod +x ./gradlew
+./gradlew assembleDebug --no-daemon --stacktrace
 ```
 
-V Android Studio vyber fyzický telefón a spusti aplikáciu. V nastaveniach aplikácie použi „Zapnúť upozornenia“ a následne „Poslať testovaciu notifikáciu“.
+Vyžadované verzie:
 
-## 10. iPhone bez vlastného Macu
+- Java 21,
+- compile/target SDK 36,
+- Build Tools 36.0.0.
 
-Zdrojový iOS projekt je v `ios/`. Na podpis a TestFlight potrebuješ:
+APK vznikne v:
 
-- Apple Developer Program,
-- Mac s Xcode alebo cloudový macOS build,
-- APNs/OneSignal nastavenia.
+```text
+android/app/build/outputs/apk/debug/app-debug.apk
+```
 
-Odporúčaný postup:
+Verzia 1.0.6 používa `versionCode 7`.
 
-1. overiť databázu a Android,
-2. založiť Apple Developer účet,
-3. na Macu dokončiť App Group a Notification Service Extension,
-4. skontrolovať signing pre `sk.povraznik.nezabudni.test`,
-5. nahrať build do TestFlightu,
-6. otestovať na Dominikinom fyzickom iPhone.
+## 11. GitHub Actions
 
-## 11. Povinné testy na reálnych telefónoch
+Workflow `.github/workflows/ci.yml` spúšťa:
 
-- Ivan → Ivan: push iba Ivanovi.
-- Ivan → Dominika: push iba Dominike.
-- Dominika → Ivan: push iba Ivanovi.
-- Dominika → Dominika: push iba Dominike.
-- Checkbox potvrdenia zapnutý: autor dostane jednu správu po splnení.
-- Checkbox vypnutý: autor nedostane potvrdenie.
-- „OK – počul som“ zastaví opakovania, úloha zostane nesplnená.
-- „Hotovo“ zastaví opakovania a označí úlohu za splnenú.
-- Snooze vytvorí nový alarmový cyklus.
-- Zmena času zruší staré jobs a vytvorí nové.
-- Odhlásenie bezpečne deaktivuje subscription pred zrušením relácie.
-- Android aplikácia zatvorená a obrazovka zamknutá.
-- iPhone aplikácia zatvorená a obrazovka zamknutá.
-- iPhone Focus/Time Sensitive nastavenia.
-- dočasný výpadok internetu a následná synchronizácia.
+- čistý `npm ci`,
+- kompletný `npm run audit`,
+- dependency security audit,
+- `npx cap sync android`,
+- kontrolu Java/SDK/package konfigurácie,
+- Gradle `assembleDebug`,
+- upload APK artefaktu.
 
+PR nezlučuj, kým oba joby nie sú zelené.
 
-## 12. Upgrade existujúceho testovacieho backendu na v0.2.2
+## 12. Povinná runtime matica na fyzických telefónoch
 
-Ak sú tabuľky a účty už vytvorené:
+### Úlohy a synchronizácia
 
-1. v Supabase SQL Editore spusti celý súbor `supabase/migrations/004_deep_audit_fixes.sql`,
-2. over, že SQL skončilo bez chyby,
-3. znova nasaď `push-worker`,
-4. zostav a nainštaluj APK s `versionCode 3`,
-5. pred testom odinštaluj starú testovaciu APK alebo vymaž jej dáta, aby v telefóne nezostala stará relácia a starý JS bundle.
+- používateľ A → A,
+- A → B,
+- B → A,
+- B → B,
+- vytvorenie, editácia, splnenie, snooze a vymazanie,
+- odmietnutie s povinným dôvodom,
+- odmietnutú úlohu nemožno označiť ako splnenú,
+- dlhší offline režim a následná synchronizácia,
+- konflikt dvoch zmien tej istej úlohy.
+
+### Štart a účty
+
+- štart bez internetu,
+- pomalé alebo blokované IndexedDB,
+- rýchle odhlásenie počas štartu,
+- prihlásenie druhého účtu po blokovanom štarte prvého,
+- cache používateľa A sa nesmie zobraziť používateľovi B.
+
+### Push notifikácie
+
+- aplikácia v popredí,
+- aplikácia na pozadí,
+- aplikácia úplne zatvorená,
+- zamknutá obrazovka,
+- Android Doze/battery optimization,
+- odhlásenie deaktivuje subscription,
+- druhý účet vie subscription znovu bezpečne zaregistrovať,
+- splnenie so zapnutým/vypnutým upozornením autora,
+- snooze a opakované pripomenutia,
+- žiadne duplicitné foreground notifikácie.
+
+## 13. Bezpečnostný checklist
+
+- reálne heslá nie sú v aktuálnom strome ani dokumentácii,
+- predtým zverejnené heslá sú zmenené,
+- staré sessions sú ukončené,
+- Git história je samostatne vyčistená alebo repozitár je považovaný za kompromitovaný archív,
+- service-role a OneSignal REST key sú iba v Supabase secrets,
+- release podpisovací kľúč nie je v repozitári,
+- migrácia 009 je aplikovaná pred nasadením klienta 1.0.6.
