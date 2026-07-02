@@ -23,5 +23,5 @@ assert.match(worker, /task\.acknowledged_at/, 're-eval potvrdenia (acknowledged)
 assert.match(worker, /p_limit:\s*25/, 'bounded batch (claim limit)');
 assert.match(worker, /WORKER_DEADLINE_MS/, 'execution deadline');
 assert.match(worker, /deadlineReached = true; break/, 'deadline zastaví branie nových jobov');
-assert.match(worker, /status: 'queued', locked_at: null[\s\S]{0,120}\.eq\('status', 'processing'\)/, 'nedokončené joby sa vrátia do fronty');
+assert.match(worker, /rpc\('requeue_unfinished_jobs', \{ p_job_ids: claimedIds \}\)/, 'nedokončené joby sa vrátia do fronty bez spálenia attempt_count');
 console.log('WORKER STATIC OK');

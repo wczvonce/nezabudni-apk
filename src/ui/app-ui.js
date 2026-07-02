@@ -9,6 +9,7 @@ import {
   rejectTask,
   hideTaskForSelf,
   fetchTasks,
+  cachedTasks,
   flushOutbox,
   retryFailedOutbox,
   discardFailedOutbox,
@@ -19,6 +20,7 @@ import {
   sendTestNotification,
   diagnostics,
   unregisterCurrentDevice,
+  suspendDeviceRegistration,
 } from '../services/notification-service.js';
 import { signOut } from '../services/auth.js';
 import { platform } from '../lib/platform.js';
@@ -71,6 +73,12 @@ function localInputParts(iso) {
   return { date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, time: `${pad(d.getHours())}:${pad(d.getMinutes())}` };
 }
 function inputToIso(date, time) { return new Date(`${date}T${time}:00`).toISOString(); }
+// due_at sa počíta z lokálneho času ZARIADENIA – timezone stĺpec (recurrence
+// wall-clock na serveri) mu musí zodpovedať, nie byť natvrdo Bratislava.
+function deviceTimezone() {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Bratislava'; }
+  catch { return 'Europe/Bratislava'; }
+}
 
 export function bindUi() {
   Object.assign(dom, {
@@ -188,14 +196,15 @@ function taskCard(task) {
   const ownerClass = assignedName.toLowerCase().includes('dominika') ? 'dominika' : '';
   const statusClass = completed ? 's-completed done-strike' : overdue ? 's-overdue' : task.snoozed_until ? 's-snoozed' : 's-active';
   const due = task.snoozed_until || task.due_at;
-  return `<article class="card ${statusClass} p${Number(task.priority || 1)}" data-open-task="${task.id}">
-    <button class="check ${completed ? 'checked' : ''}" ${mine && !completed ? `data-complete-task="${task.id}"` : 'disabled'} aria-label="${completed ? 'Splnené' : mine ? 'Označiť ako hotové' : 'Úlohu môže splniť jej vlastník'}"><svg viewBox="0 0 24 24"><polyline points="4,12 10,18 20,6"/></svg></button>
+  const priority = Number(task.priority || 1);
+  return `<article class="card ${statusClass} p${priority}" data-open-task="${esc(task.id)}">
+    <button class="check ${completed ? 'checked' : ''}" ${mine && !completed ? `data-complete-task="${esc(task.id)}"` : 'disabled'} aria-label="${completed ? 'Splnené' : mine ? 'Označiť ako hotové' : 'Úlohu môže splniť jej vlastník'}"><svg viewBox="0 0 24 24"><polyline points="4,12 10,18 20,6"/></svg></button>
     <div class="c-body"><div class="c-title">${esc(task.title)}</div>${task.notes ? `<div class="c-note">${esc(task.notes)}</div>` : ''}
-      <div class="c-meta"><span class="card-owner ${ownerClass}">Pre: ${esc(assignedName)}</span><span class="chip ${overdue ? 'late' : ''}">🕒 ${fmtDate(due)} ${fmtTime(due)}</span><span class="stars s${task.priority}">${'★'.repeat(Number(task.priority || 1))}</span>${task.snoozed_until ? '<span class="chip snz">Odložené</span>' : ''}</div>
+      <div class="c-meta"><span class="card-owner ${ownerClass}">Pre: ${esc(assignedName)}</span><span class="chip ${overdue ? 'late' : ''}">🕒 ${fmtDate(due)} ${fmtTime(due)}</span><span class="stars s${priority}">${'★'.repeat(priority)}</span>${task.snoozed_until ? '<span class="chip snz">Odložené</span>' : ''}</div>
       <div class="creator-line">Zadal/a: ${esc(creatorName)} · ${relativeTime(due)}${task.notify_creator_on_complete && task.created_by !== task.assigned_to ? ' · čaká na potvrdenie splnenia' : ''}</div>
       ${task.status === 'rejected' && task.rejection_reason ? `<div class="c-note reject-reason">Odmietnuté: ${esc(task.rejection_reason)}</div>` : ''}
-      ${mine && task.status === 'pending' ? `<button type="button" class="link-btn" data-reject-task="${task.id}">Odmietnuť</button>` : ''}
-      ${mine && task.status !== 'pending' ? `<button type="button" class="link-btn" data-hide-task="${task.id}">Odstrániť zo svojho zoznamu</button>` : ''}
+      ${mine && task.status === 'pending' ? `<button type="button" class="link-btn" data-reject-task="${esc(task.id)}">Odmietnuť</button>` : ''}
+      ${mine && task.status !== 'pending' ? `<button type="button" class="link-btn" data-hide-task="${esc(task.id)}">Odstrániť zo svojho zoznamu</button>` : ''}
     </div></article>`;
 }
 
@@ -206,7 +215,13 @@ async function handleMainClick(event) {
   if (reject) { event.stopPropagation(); await rejectTaskFromUi(reject.dataset.rejectTask); return; }
   const hide = event.target.closest('[data-hide-task]');
   if (hide) { event.stopPropagation(); await hideTaskFromUi(hide.dataset.hideTask); return; }
-  const open = event.target.closest('[data-open-task]'); if (open) openTaskSheet(getState().tasks.find((t) => t.id === open.dataset.openTask));
+  const open = event.target.closest('[data-open-task]');
+  if (open) {
+    // Úloha mohla medzi renderom a klikom zmiznúť zo stavu (sync/hide na inom
+    // zariadení) – vtedy neotváraj prázdny „Nová úloha" formulár.
+    const found = getState().tasks.find((t) => t.id === open.dataset.openTask);
+    if (found) openTaskSheet(found);
+  }
   const action = event.target.closest('[data-setting-action]');
   if (action) await handleSettingAction(action.dataset.settingAction);
 }
@@ -284,6 +299,9 @@ async function handleSettingAction(action) {
       if (getState().demoMode) location.reload();
       else {
         if (platform.isNative && !navigator.onLine) throw new Error('Pred odhlásením sa pripoj na internet, aby sa telefón bezpečne odpojil od účtu.');
+        // OneSignal subscription-change event nesmie zariadenie počas
+        // odhlasovania znova zaregistrovať (okno unregister -> signOut).
+        suspendDeviceRegistration();
         await unregisterCurrentDevice();
         await signOut();
       }
@@ -300,7 +318,7 @@ export function openTaskSheet(task = null) {
   const state = getState(); setState({ editingTaskId: task?.id || null }); selectedFiles = []; selectedPriority = Number(task?.priority || 1);
   const terminal = Boolean(task) && task.status !== 'pending';
   $('sheetTitle').textContent = !task ? 'Nová úloha' : (terminal ? 'Detail úlohy' : 'Upraviť úlohu');
-  dom.assigned.innerHTML = state.members.map((m) => `<option value="${m.id}">${esc(m.id === state.user.id ? 'Mne – ' + m.display_name : m.display_name)}</option>`).join('');
+  dom.assigned.innerHTML = state.members.map((m) => `<option value="${esc(m.id)}">${esc(m.id === state.user.id ? 'Mne – ' + m.display_name : m.display_name)}</option>`).join('');
   dom.title.value = task?.title || ''; dom.note.value = task?.notes || ''; dom.assigned.value = task?.assigned_to || state.user.id;
   const parts = localInputParts(task?.due_at); dom.date.value = parts.date; dom.time.value = parts.time;
   dom.pre.value = String(task?.pre_reminder_minutes ?? 0); dom.rec.value = task?.recurrence_rule || 'none'; dom.recMode.value = task?.recurrence_mode || 'after'; dom.recModeWrap.hidden = dom.rec.value === 'none';
@@ -333,7 +351,7 @@ async function saveTaskFromForm(event) {
       toast('Hotovú alebo zrušenú úlohu nemožno upraviť', true);
       return;
     }
-    const input = { title: dom.title.value.trim(), notes: dom.note.value.trim(), assigned_to: dom.assigned.value, due_at: inputToIso(dom.date.value, dom.time.value), timezone: editing?.timezone || 'Europe/Bratislava', priority: selectedPriority, pre_reminder_minutes: Number(dom.pre.value), recurrence_rule: dom.rec.value, recurrence_mode: dom.recMode.value, notify_creator_on_complete: dom.notifyCreator.checked, reminder_interval_seconds: Number(dom.interval.value), max_reminders: Number(dom.maxReminders.value) };
+    const input = { title: dom.title.value.trim(), notes: dom.note.value.trim(), assigned_to: dom.assigned.value, due_at: inputToIso(dom.date.value, dom.time.value), timezone: editing?.timezone || deviceTimezone(), priority: selectedPriority, pre_reminder_minutes: Number(dom.pre.value), recurrence_rule: dom.rec.value, recurrence_mode: dom.recMode.value, notify_creator_on_complete: dom.notifyCreator.checked, reminder_interval_seconds: Number(dom.interval.value), max_reminders: Number(dom.maxReminders.value) };
     if (!input.title) {
       toast('Napíš názov úlohy', true);
       return;
@@ -343,6 +361,7 @@ async function saveTaskFromForm(event) {
     await refreshFromCacheOrCloud();
     closeTaskSheet();
     if (result.attachmentErrors?.length) toast(`Úloha je uložená, ale ${result.attachmentErrors.length} príloh sa nepodarilo nahrať`, true);
+    else if (result.attachmentsSkipped) toast(`Uložené offline – ${result.attachmentsSkipped} príloh sa NEnahralo, pridaj ich po pripojení znova`, true);
     else toast(result.queued ? 'Uložené offline – čaká na synchronizáciu' : 'Úloha uložená');
   } catch (error) { dom.fileProgress.textContent = ''; toast(translateTaskError(error.message) || 'Uloženie zlyhalo', true); }
   finally {
@@ -399,7 +418,12 @@ async function performSync(showToast) {
     if (showToast) toast(syncError || 'Synchronizácia dokončená', Boolean(syncError));
   } catch (error) {
     if (getState().user?.id !== userId) return;
-    setState({ syncing: false, syncError: error.message });
+    // „Online, ale sieť nefunguje": optimistická zmena je už v lokálnej DB,
+    // no fetchTasks zlyhal. Bez načítania cache by UI ukazovalo starý stav
+    // a používateľ by mutáciu zopakoval (duplicitne).
+    const fallback = await cachedTasks().catch(() => null);
+    if (getState().user?.id !== userId) return;
+    setState({ ...(fallback ? { tasks: fallback } : {}), syncing: false, syncError: error.message });
     if (showToast) toast('Synchronizácia zlyhala', true);
   }
   if (getState().user?.id === userId) render();
@@ -441,8 +465,14 @@ function checkDueAlarm() {
   });
   if (!task) return;
   const alarmKey = `${task.id}:${task.version}:${effectiveDue(task)}`;
+  // Map.set na existujúci kľúč NEobnovuje poradie vloženia – živý kľúč treba
+  // presunúť na koniec, inak by ho eviction nižšie vyhodil ako „najstarší"
+  // a vynuloval jeho počítadlo pripomienok.
+  const nextCount = (shownAlarmCount.get(alarmKey) || 0) + 1;
+  shownAlarmAt.delete(alarmKey);
+  shownAlarmCount.delete(alarmKey);
   shownAlarmAt.set(alarmKey, now);
-  shownAlarmCount.set(alarmKey, (shownAlarmCount.get(alarmKey) || 0) + 1);
+  shownAlarmCount.set(alarmKey, nextCount);
   // Dlhodobo otvorená aplikácia nesmie hromadiť neobmedzenú históriu.
   if (shownAlarmAt.size > 500) {
     const oldest = shownAlarmAt.keys().next().value;
