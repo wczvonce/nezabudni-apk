@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main, goal-android-stabilization]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: Tests, SQL, Edge worker, build, audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Clean install
+        run: npm ci
+      - name: Audit (unit + SQL + worker + android package + validate + vite build)
+        run: npm run audit
+      - name: Dependency security audit
+        run: npm audit --audit-level=high
+
+  android:
+    name: Android debug build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Clean install
+        run: npm ci
+      - name: Validate Android package
+        run: npm run check:android
+      - name: Build web + sync Android
+        run: |
+          npm run build
+          npx cap sync android
+      - name: Gradle assembleDebug
+        run: |
+          cd android
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
