@@ -2,6 +2,14 @@
   command = "npm run build"
   publish = "dist"
 
+# Zmazaný (starý) hashovaný asset NESMIE spadnúť do SPA fallbacku – vrátil by
+# index.html s ročnou immutable hlavičkou a service worker by HTML navždy
+# cachoval ako JS/CSS (rozbitá appka až do vyčistenia úložiska).
+[[redirects]]
+  from = "/assets/*"
+  to = "/404.html"
+  status = 404
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

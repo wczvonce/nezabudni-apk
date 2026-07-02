@@ -33,8 +33,12 @@ export async function signIn(email, password) {
 
 export async function signOut() {
   if (!supabase) return;
+  // scope 'local' = odhlás IBA toto zariadenie (zodpovedá UI „Odhlásiť sa").
+  // Globálny scope revokoval refresh token aj partnerovmu/druhému zariadeniu,
+  // ktoré sa však nikdy neodregistrovalo z push notifikácií – odhlásený telefón
+  // by ďalej dostával notifikácie s názvami úloh.
   const { error } = await withTimeout(
-    supabase.auth.signOut(),
+    supabase.auth.signOut({ scope: 'local' }),
     'Odhlásenie trvá príliš dlho. Skontroluj internet a skús to znova.',
   );
   if (error) throw error;

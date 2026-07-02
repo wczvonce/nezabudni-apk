@@ -4,7 +4,6 @@ const config: CapacitorConfig = {
   appId: 'sk.povraznik.nezabudni.test',
   appName: 'NezabudniTest',
   webDir: 'dist',
-  bundledWebRuntime: false,
   ios: {
     handleApplicationNotifications: false,
     contentInset: 'automatic',

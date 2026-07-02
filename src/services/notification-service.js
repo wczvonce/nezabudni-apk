@@ -7,6 +7,11 @@ import { singleFlight } from '../lib/async.js';
 let initialized = false;
 let currentSubscriptionId = null;
 let clickHandler = null;
+// Počas odhlasovania nesmie subscription-change event zariadenie znova
+// aktivovať (api_register_device) – odhlásený telefón by ďalej dostával pushe.
+let registrationSuspended = false;
+
+export function suspendDeviceRegistration() { registrationSuspended = true; }
 
 // Stabilné referencie listenerov – aby sa registrovali práve raz (Issue 10).
 function handleNotificationClick(event) {
@@ -16,6 +21,7 @@ function handleNotificationClick(event) {
 
 function handleSubscriptionChange(event) {
   currentSubscriptionId = event?.current?.id || null;
+  if (registrationSuspended) return;
   if (currentSubscriptionId && supabase) {
     registerCurrentDevice().catch((error) => console.warn('Push subscription re-registration failed', error));
   }
@@ -51,6 +57,8 @@ function deviceInstallId() {
 
 export async function initializeNotifications(onNotificationClick) {
   clickHandler = onNotificationClick;
+  // Nové prihlásenie ruší suspend z predchádzajúceho odhlásenia.
+  registrationSuspended = false;
   if (!platform.isNative || !CONFIG.oneSignalAppId) {
     return diagnostics();
   }

@@ -1,7 +1,3 @@
-# CI workflow pre Nezabudni (GitHub Actions).
-#
-# AKTIVOVANÉ 2026-07-02: kópia beží v `.github/workflows/ci.yml`.
-# Tento súbor ostáva ako zdrojová šablóna – zmeny rob v oboch súboroch.
 name: CI
 
 on:
@@ -41,7 +37,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
       - name: Clean install

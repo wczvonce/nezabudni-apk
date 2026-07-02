@@ -23,8 +23,25 @@ function uuid() {
 }
 
 function isNetworkError(error) {
+  if (!navigator.onLine) return true;
+  if (error?.code === 'OPERATION_ABORTED' || error?.code === 'ACCOUNT_CONTEXT_CHANGED') return false;
+  // Fetch zlyháva TypeError-om; supabase-js ho zabalí do message. Zámerne
+  // presné vzory – serverová chyba, ktorá náhodou obsahuje slovo „network",
+  // nesmie skončiť v offline fronte namiesto zobrazenia používateľovi.
+  if (error instanceof TypeError) return true;
   const text = String(error?.message || error || '').toLowerCase();
-  return !navigator.onLine || text.includes('fetch') || text.includes('network') || text.includes('failed to fetch');
+  return text.includes('failed to fetch') || text.includes('networkerror') || text.includes('network request failed') || text.includes('load failed');
+}
+
+// Prechodná serverová chyba (5xx/429/expirovaný token) – mutácia ostane vo
+// fronte a ďalší sync ju zopakuje automaticky; až po vyčerpaní pokusov sa
+// označí ako 'failed' na ručné riešenie.
+const MAX_OUTBOX_AUTO_RETRIES = 5;
+function isTransientServerError(error) {
+  const status = Number(error?.status || error?.statusCode || 0);
+  if (status === 429 || status >= 500) return true;
+  const text = String(error?.message || error || '').toLowerCase();
+  return text.includes('jwt expired') || text.includes('timeout') || text.includes('too many requests');
 }
 
 // Issue 9: operáciu spustenú cez withAbortTimeout treba po timeoute zastaviť skôr,
@@ -212,7 +229,10 @@ export async function createTask(input, files = []) {
     const attachmentErrors = files.length ? await uploadAttachments(task, files, snapshot) : [];
     return { task, queued: false, attachmentErrors };
   } catch (error) {
-    if (isNetworkError(error)) return queueMutation('create', payload, optimistic, snapshot);
+    // Prílohy sa do offline fronty nedajú zaradiť – používateľ sa to musí
+    // dozvedieť, inak by sa potichu stratili (guard na vstupe kryje iba
+    // stav offline PRED requestom, nie výpadok počas neho).
+    if (isNetworkError(error)) return { ...(await queueMutation('create', payload, optimistic, snapshot)), attachmentsSkipped: files.length };
     throw error;
   }
 }
@@ -253,7 +273,7 @@ export async function updateTask(task, input, files = []) {
     const attachmentErrors = files.length ? await uploadAttachments(updated, files, snapshot) : [];
     return { task: updated, queued: false, attachmentErrors };
   } catch (error) {
-    if (isNetworkError(error)) return queueMutation('update', payload, optimistic, snapshot);
+    if (isNetworkError(error)) return { ...(await queueMutation('update', payload, optimistic, snapshot)), attachmentsSkipped: files.length };
     throw error;
   }
 }
@@ -382,12 +402,21 @@ export async function flushOutbox(signal) {
       if (error?.code === 'ACCOUNT_CONTEXT_CHANGED' || error?.code === 'OPERATION_ABORTED') throw error;
       if (isNetworkError(error)) break;
       assertCurrent(snapshot);
-      // Jedna neplatná alebo konfliktná zmena nesmie navždy zablokovať
-      // všetky neskoršie zmeny. Ponecháme ju v outboxe a ukážeme ju
-      // používateľovi v nastaveniach na ručné zopakovanie alebo zahodenie.
       item.attempts = Number(item.attempts || 0) + 1;
       item.last_error = String(error?.message || error || 'UNKNOWN_ERROR');
       item.last_attempt_at = new Date().toISOString();
+      // Prechodná serverová chyba (5xx/429/expirovaný token) sa nesmie po
+      // JEDNOM pokuse natrvalo zaparkovať ako 'failed' – mutácia ostane
+      // pending a ďalší sync ju zopakuje automaticky (s limitom pokusov).
+      if (isTransientServerError(error) && item.attempts < MAX_OUTBOX_AUTO_RETRIES) {
+        item.status = 'pending';
+        await snapshot.db.enqueue(item);
+        console.warn('Outbox mutation transiently failed; will retry on next sync', item.mutation_id, item.last_error);
+        continue;
+      }
+      // Jedna neplatná alebo konfliktná zmena nesmie navždy zablokovať
+      // všetky neskoršie zmeny. Ponecháme ju v outboxe a ukážeme ju
+      // používateľovi v nastaveniach na ručné zopakovanie alebo zahodenie.
       item.status = 'failed';
       await snapshot.db.enqueue(item);
       failed += 1;
@@ -408,9 +437,18 @@ export async function failedOutboxItems() {
 export async function retryFailedOutbox() {
   const snapshot = contextSnapshot();
   const items = await snapshot.db.failedOutboxItems();
+  const cached = await snapshot.db.getTasks();
   for (const item of items) {
+    // TASK_CONFLICT: pôvodná p_expected_version je už navždy zastaraná –
+    // opakovanie s ňou by deterministicky zlyhalo. Rebase na aktuálnu
+    // (serverovú) verziu z cache; používateľ o prepise rozhodol tlačidlom.
+    if (item.action === 'update' && String(item.last_error || '').includes('TASK_CONFLICT')) {
+      const current = cached.find((t) => t.id === item.payload?.p_task_id);
+      if (current) item.payload.p_expected_version = Number(current.version);
+    }
     item.status = 'pending';
     item.last_error = null;
+    item.attempts = 0;
     await snapshot.db.enqueue(item);
   }
   assertCurrent(snapshot);

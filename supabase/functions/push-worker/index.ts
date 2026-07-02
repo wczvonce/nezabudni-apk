@@ -147,13 +147,11 @@ Deno.serve(async (request) => {
   // Issue 2: ktorýkoľvek zaclaimovaný job, ktorý sme nestihli dokončiť (deadline
   // alebo predčasný koniec), vráť do fronty. Dokončené joby už nie sú 'processing',
   // takže ich to nepoškodí – tým sa žiadny job nestratí pri ukončení invokácie.
+  // RPC zároveň vráti attempt_count inkrementovaný claimom – vrátenie do fronty
+  // bez reálneho pokusu nesmie job priblížiť k terminálnemu 'failed'.
   const claimedIds = claimedJobs.map((j) => j.id);
   if (claimedIds.length) {
-    const { error: requeueError } = await supabase
-      .from('notification_jobs')
-      .update({ status: 'queued', locked_at: null })
-      .in('id', claimedIds)
-      .eq('status', 'processing');
+    const { error: requeueError } = await supabase.rpc('requeue_unfinished_jobs', { p_job_ids: claimedIds });
     if (requeueError) console.error('Requeue of unfinished jobs failed', requeueError);
   }
 

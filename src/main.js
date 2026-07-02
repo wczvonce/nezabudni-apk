@@ -87,6 +87,11 @@ function handleAuthSession(session) {
   return authTransitionQueue;
 }
 
+function setRetryVisible(visible) {
+  const btn = document.getElementById('retryBootBtn');
+  if (btn) btn.hidden = !visible;
+}
+
 function bindLogin() {
   const form = document.getElementById('loginForm');
   const errorBox = document.getElementById('loginError');
@@ -94,6 +99,7 @@ function bindLogin() {
     event.preventDefault();
     if (loginBusy) return;
     loginBusy = true;
+    setRetryVisible(false);
     const submit = form.querySelector('button[type="submit"]');
     if (submit) submit.disabled = true;
     errorBox.textContent = '';
@@ -112,6 +118,20 @@ function bindLogin() {
     }
   });
   document.getElementById('demoBtn').addEventListener('click', bootDemo);
+  // Zotavenie po prechodnom zlyhaní štartu: relácia je zachovaná, stačí
+  // znovu spustiť boot – bez opätovného zadávania hesla či reštartu appky.
+  document.getElementById('retryBootBtn')?.addEventListener('click', async () => {
+    setRetryVisible(false);
+    showLoading(true);
+    try {
+      const session = await getSession();
+      await handleAuthSession(session);
+    } catch (error) {
+      showLoading(false);
+      setRetryVisible(true);
+      showAuth(true, `Štart sa nepodaril (dočasný problém): ${error.message}`);
+    }
+  });
 }
 
 function translateAuthError(message) {
@@ -121,7 +141,22 @@ function translateAuthError(message) {
   return text || 'Prihlásenie zlyhalo.';
 }
 
+let demoBusy = false;
 async function bootDemo() {
+  if (demoBusy) return;
+  demoBusy = true;
+  try {
+    await bootDemoInner();
+  } catch (error) {
+    console.error('Demo boot failed', error);
+    showLoading(false);
+    showAuth(true, `Ukážkový režim sa nepodarilo spustiť: ${error.message}`);
+  } finally {
+    demoBusy = false;
+  }
+}
+
+async function bootDemoInner() {
   showLoading(true);
   const ivan = { id: '11111111-1111-4111-8111-111111111111', display_name: 'Ivan Povrazník', email: 'wczvonce@gmail.com' };
   const dominika = { id: '22222222-2222-4222-8222-222222222222', display_name: 'Dominika', email: 'domi.mikloskova@gmail.com' };
@@ -196,6 +231,7 @@ async function bootUser(user, generation) {
         showLoading(false);
         resetTransientUi();
         showAuth(true, `Štart sa nepodaril (dočasný problém): ${criticalError.message} Tvoje prihlásenie je zachované — skús to znova.`);
+        setRetryVisible(true);
       }
       return;
     }
@@ -223,9 +259,11 @@ async function bootUser(user, generation) {
     // Najprv odošli lokálne čakajúce zmeny. Až potom načítaj cloud,
     // inak by sa offline optimistické zmeny mohli dočasne prepísať.
     try {
-      const outbox = await withTimeout(flushOutbox(), 'Synchronizácia offline zmien trvá príliš dlho.');
+      // Issue 9 platí aj pri boote: operácie dostanú signál, aby ich zápis po
+      // timeoute nezbehol na pozadí a neprepísal novší stav zo syncNow().
+      const outbox = await withAbortTimeout((signal) => flushOutbox(signal), { timeoutMs: BOOT_STEP_TIMEOUT_MS, message: 'Synchronizácia offline zmien trvá príliš dlho.' });
       if (!isCurrentTransition(generation, user.id)) return;
-      const tasks = await withTimeout(fetchTasks(), 'Načítanie úloh trvá príliš dlho.');
+      const tasks = await withAbortTimeout((signal) => fetchTasks(signal), { timeoutMs: BOOT_STEP_TIMEOUT_MS, message: 'Načítanie úloh trvá príliš dlho.' });
       if (!isCurrentTransition(generation, user.id)) return;
       setState({
         tasks,
@@ -286,6 +324,7 @@ async function showSignedOut(generation) {
   resetTransientUi();
   resetState();
   showLoading(false);
+  setRetryVisible(false);
   // Pri SIGNED_OUT už nemusí existovať platný JWT, preto tu nevoláme
   // serverové odregistrovanie zariadenia. Manuálne odhlásenie ho vykoná
   // ešte pred zrušením relácie.
