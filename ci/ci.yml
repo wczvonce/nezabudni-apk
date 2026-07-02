@@ -1,10 +1,7 @@
 # CI workflow pre Nezabudni (GitHub Actions).
 #
-# AKTIVÁCIA (jednorazovo): skopíruj tento súbor do `.github/workflows/ci.yml`.
-# Robí sa to ručne, lebo aktuálny GitHub token nemá `workflow` scope a push
-# súborov do `.github/workflows/` GitHub odmieta. Skopírovať môžeš:
-#  - cez GitHub web UI (Add file -> Create new file -> .github/workflows/ci.yml),
-#  - alebo lokálne po pridaní `workflow` scope tokenu: `gh auth refresh -s workflow`.
+# AKTIVOVANÉ 2026-07-02: kópia beží v `.github/workflows/ci.yml`.
+# Tento súbor ostáva ako zdrojová šablóna – zmeny rob v oboch súboroch.
 name: CI
 
 on:

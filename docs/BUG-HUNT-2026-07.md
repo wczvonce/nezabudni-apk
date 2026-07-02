@@ -47,6 +47,11 @@ a existujúcim `npm run audit` (PASS).
   starých deployov sa už nehromadia), runtime cache Google Fonts → offline
   typografia.
 
+## CI
+
+Workflow z `ci/ci.yml` je skopírovaný do `.github/workflows/ci.yml` a aktivovaný
+(predchádzajúci blokátor – token bez `workflow` scope – už neplatí).
+
 ## Nasadenie
 
 1. `supabase/migrations/009_bug_hunt_2.sql` aplikovať do projektu (SQL editor / CLI).
