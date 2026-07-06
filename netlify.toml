@@ -32,6 +32,13 @@
   [headers.values]
     Cache-Control = "no-cache, no-store, must-revalidate"
 
+# OneSignal web push service worker – rovnako ako /sw.js sa nesmie kešovať,
+# inak by po zmene worker súboru zostala v prehliadači stará verzia.
+[[headers]]
+  for = "/push/onesignal/OneSignalSDKWorker.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
 [[headers]]
   for = "/assets/*"
   [headers.values]

@@ -5,6 +5,7 @@ const required = [
   'capacitor.config.ts', 'src/main.js', 'src/services/task-service.js',
   'supabase/migrations/001_schema.sql', 'supabase/migrations/004_deep_audit_fixes.sql', 'supabase/functions/push-worker/index.ts',
   'android/app/build.gradle', 'ios/App/App.xcodeproj/project.pbxproj', 'ios/App/App/App.entitlements',
+  'public/push/onesignal/OneSignalSDKWorker.js',
   'tests/auth-deadlock.test.mjs', 'tests/account-isolation.test.mjs', 'tests/sql-behavior.test.mjs', 'tests/ui-alarm.test.mjs', 'tests/worker-static.test.mjs',
 ];
 for (const path of required) await readFile(path);
