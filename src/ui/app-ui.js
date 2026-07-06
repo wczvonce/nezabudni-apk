@@ -118,7 +118,7 @@ export function bindUi() {
   });
   dom.main.addEventListener('click', handleMainClick);
   dom.alarmOk.addEventListener('click', () => handleAlarmAction('ack'));
-  dom.alarmDone.addEventListener('click', () => handleAlarmAction('done'));
+  dom.alarmDone.addEventListener('click', () => handleAlarmAction('complete'));
   dom.snooze15.addEventListener('click', () => handleAlarmAction('snooze', 15));
   dom.snooze60.addEventListener('click', () => handleAlarmAction('snooze', 60));
   dom.alarmOpen.addEventListener('click', () => { const task = alarmTask; closeAlarm(); if (task) openTaskSheet(task); });
@@ -238,6 +238,7 @@ function translateTaskError(message) {
     TASK_DELETED: 'Úloha už bola vymazaná.',
     TASK_NOT_FOUND: 'Úloha sa nenašla.',
     INVALID_ASSIGNEE: 'Neplatný príjemca úlohy.',
+    INVALID_SNOOZE: 'Neplatný čas odloženia. Skús to znova.',
   };
   for (const [k, v] of Object.entries(map)) if (m.includes(k)) return v;
   return m;
@@ -385,9 +386,18 @@ async function mutateTask(action, id, value = null) {
   const task = getState().tasks.find((t) => t.id === id); if (!task) return;
   taskMutationBusy.add(id);
   try {
-    const result = action === 'complete' ? await completeTask(task) : action === 'ack' ? await acknowledgeTask(task) : await snoozeTask(task, value);
+    // Explicitné vetvy: pred opravou každá neznáma akcia (napr. 'done' z alarmu)
+    // potichu spadla do snoozeTask(task, undefined) a server vrátil INVALID_SNOOZE.
+    let result;
+    if (action === 'complete') result = await completeTask(task);
+    else if (action === 'ack') result = await acknowledgeTask(task);
+    else if (action === 'snooze') {
+      const minutes = Number(value);
+      if (!Number.isInteger(minutes) || minutes < 1 || minutes > 10080) throw new Error('INVALID_SNOOZE');
+      result = await snoozeTask(task, minutes);
+    } else throw new Error(`Neznáma akcia úlohy: ${action}`);
     await refreshFromCacheOrCloud(); toast(result.queued ? 'Zmena čaká na internet' : action === 'complete' ? 'Úloha splnená' : action === 'ack' ? 'Pripomínanie zastavené' : `Odložené o ${value} min`);
-  } catch (error) { toast(error.message || 'Zmena zlyhala', true); }
+  } catch (error) { toast(translateTaskError(error.message) || 'Zmena zlyhala', true); }
   finally { taskMutationBusy.delete(id); }
 }
 

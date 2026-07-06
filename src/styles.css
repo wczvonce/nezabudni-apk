@@ -93,6 +93,10 @@ main{flex:1;padding:8px 16px 140px;overflow-y:auto}
 .chip.soon{background:rgba(245,158,11,.15);color:#ffc04d}
 .stars{color:var(--accent2);font-size:13px;letter-spacing:1px}
 .stars.s1{opacity:.5}
+/* „Odmietnuť" na karte úlohy — bez tejto triedy sa zobrazoval surový systémový button */
+.link-btn{background:none;border:none;padding:6px 0 0;margin:0;font:inherit;font-size:13px;font-weight:600;color:var(--txt-dim);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.link-btn:active{color:#ff7a6b}
+.reject-reason{color:#ff7a6b}
 
 .empty{text-align:center;padding:70px 30px;color:var(--txt-dim)}
 .empty .em{font-size:46px;margin-bottom:12px}

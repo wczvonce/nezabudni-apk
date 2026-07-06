@@ -20,7 +20,7 @@ let fakeNow = realDateNow();
 Date.now = () => fakeNow;
 
 const { initTaskService, closeTaskService } = await import('../src/services/task-service.js');
-const { setState, resetState } = await import('../src/state/store.js');
+const { setState, resetState, getState } = await import('../src/state/store.js');
 const { bindUi, showApp, render } = await import('../src/ui/app-ui.js');
 
 const USER='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -61,6 +61,18 @@ const nextCycle = { ...baseTask, version:2, snoozed_until:new Date(Date.now()-1_
 setState({ tasks:[nextCycle] });
 render();
 assert.ok(document.getElementById('alarmScrim').classList.contains('show'), 'Nový alarmový cyklus sa nezobrazil');
+
+// Regres (bug z 2026-07-06): „Hotovo" v alarme musí úlohu SPLNIŤ. Pred opravou
+// handleAlarmAction('done') spadlo v mutateTask do snooze vetvy bez minút a
+// používateľ videl surové INVALID_SNOOZE, úloha ostala medzi plánovanými.
+document.getElementById('alarmDoneBtn').click();
+await new Promise((resolve) => setTimeout(resolve, 100));
+const doneTask = getState().tasks.find((t) => t.id === baseTask.id);
+assert.equal(doneTask?.status, 'completed', 'Úloha po „Hotovo" z alarmu nie je splnená');
+assert.ok(!document.getElementById('alarmScrim').classList.contains('show'), 'Alarm sa po „Hotovo" nezavrel');
+const toastText = document.getElementById('toast').textContent;
+assert.ok(!toastText.includes('INVALID'), `Toast ukazuje surovú DB chybu: ${toastText}`);
+assert.equal(toastText, 'Úloha splnená', `Nečakaný toast: ${toastText}`);
 
 await closeTaskService();
 resetState();
