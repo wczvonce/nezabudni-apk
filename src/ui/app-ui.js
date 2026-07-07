@@ -503,6 +503,12 @@ function checkDueAlarm() {
     shownAlarmAt.delete(oldest);
     shownAlarmCount.delete(oldest);
   }
+  showAlarmForTask(task);
+}
+// Zobrazenie alarmového okna (Hotovo / OK — počul som / Odložiť / Otvoriť úlohu)
+// pre konkrétnu úlohu. Prípadný otvorený formulár sa zavrie — alarm má prednosť.
+function showAlarmForTask(task) {
+  closeTaskSheet();
   alarmTask = task;
   dom.alarmTitle.textContent = task.title;
   dom.alarmNote.textContent = task.notes || `${fmtDate(effectiveDue(task))} ${fmtTime(effectiveDue(task))}`;
@@ -517,11 +523,19 @@ export function openTaskFromNotification(taskId) {
     pendingNotificationTaskId = taskId;
     return;
   }
+  // Klik na push pripomienky má položiť otázku „Hotovo / nechať / odložiť?"
+  // (alarmové okno), NIE otvoriť editačný formulár s klávesnicou. Formulár
+  // (detail) sa otvorí len pri úlohách, kde alarm nedáva zmysel — už splnené,
+  // odmietnuté alebo pridelené partnerovi (napr. push „partner splnil").
+  const open = (task) => {
+    if (task.status === 'pending' && task.assigned_to === getState().user.id) showAlarmForTask(task);
+    else openTaskSheet(task);
+  };
   const task = getState().tasks.find((t) => t.id === taskId);
-  if (task) openTaskSheet(task);
+  if (task) open(task);
   else syncNow().then(() => {
     const refreshed = getState().tasks.find((t) => t.id === taskId);
-    if (refreshed) openTaskSheet(refreshed);
+    if (refreshed) open(refreshed);
   }).catch((error) => console.warn('Notification task open failed', error));
 }
 
