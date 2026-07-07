@@ -57,6 +57,8 @@ function isToday(date) {
 function isOverdue(task) { return task.status === 'pending' && !task.deleted_at && new Date(task.snoozed_until || task.due_at).getTime() < Date.now(); }
 function effectiveDue(task) { return task.snoozed_until || task.due_at; }
 function dueMs(task) { return new Date(effectiveDue(task)).getTime(); }
+// Bezpečný prevod timestampu na ms — chýbajúca/neplatná hodnota radí nakoniec.
+function tsMs(value) { const ms = new Date(value || 0).getTime(); return Number.isFinite(ms) ? ms : 0; }
 function fmtDate(iso) { return new Intl.DateTimeFormat('sk-SK', { weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(iso)); }
 function fmtTime(iso) { return new Intl.DateTimeFormat('sk-SK', { hour: '2-digit', minute: '2-digit' }).format(new Date(iso)); }
 function relativeTime(iso) {
@@ -175,6 +177,10 @@ function filteredTasks() {
     rejected: (t) => t.status === 'rejected',
   };
   return tasks.filter(filters[state.activeTab] || filters.today).sort((a, b) => {
+    // Hotové/odmietnuté: najnovšie hore (podľa času splnenia / poslednej zmeny),
+    // nie podľa termínu — inak by boli najstaršie úlohy navrchu.
+    if (state.activeTab === 'done') return tsMs(b.completed_at || b.updated_at) - tsMs(a.completed_at || a.updated_at);
+    if (state.activeTab === 'rejected') return tsMs(b.updated_at) - tsMs(a.updated_at);
     if (a.status === 'completed' && b.status !== 'completed') return 1;
     if (b.status === 'completed' && a.status !== 'completed') return -1;
     return dueMs(a) - dueMs(b);
