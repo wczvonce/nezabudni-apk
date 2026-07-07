@@ -341,7 +341,11 @@ export function openTaskSheet(task = null) {
 }
 
 function closeTaskSheet() { dom.scrim.classList.remove('show'); dom.sheet.classList.remove('show'); setState({ editingTaskId: null }); }
-function updateNotifyCreatorVisibility() { dom.notifyWrap.hidden = dom.assigned.value === getState().user.id; if (dom.notifyWrap.hidden) dom.notifyCreator.checked = false; }
+// Checkbox „upozorni ma pri splnení" sa skrýva pri úlohe pre seba — ale NESMIE
+// pri skrytí mazať hodnotu: keď PRÍJEMCA edituje úlohu od partnera, checkbox je
+// z jeho pohľadu skrytý a vynulovanie by potichu zmazalo partnerovo prianie
+// (bug: Dominika zaškrtla, Ivan upravil čas → upozornenie zmizlo).
+function updateNotifyCreatorVisibility() { dom.notifyWrap.hidden = dom.assigned.value === getState().user.id; }
 function updateCountdown() { if (!dom.date.value || !dom.time.value) return; dom.countdown.textContent = relativeTime(inputToIso(dom.date.value, dom.time.value)); }
 function renderSelectedFiles() { dom.attList.innerHTML = selectedFiles.map((file, i) => `<div class="att-item"><span class="att-icon">${file.type.startsWith('image/') ? '🖼️' : '📄'}</span><div class="att-name">${esc(file.name)}<div class="att-size">${Math.ceil(file.size / 1024)} KB</div></div><button type="button" class="att-del" data-remove-file="${i}">×</button></div>`).join(''); dom.fileProgress.textContent = selectedFiles.length ? `${selectedFiles.length} príloh pripravených na uloženie` : ''; }
 
@@ -358,7 +362,11 @@ async function saveTaskFromForm(event) {
       toast('Hotovú alebo zrušenú úlohu nemožno upraviť', true);
       return;
     }
-    const input = { title: dom.title.value.trim(), notes: dom.note.value.trim(), assigned_to: dom.assigned.value, due_at: inputToIso(dom.date.value, dom.time.value), timezone: editing?.timezone || deviceTimezone(), priority: selectedPriority, pre_reminder_minutes: Number(dom.pre.value), recurrence_rule: dom.rec.value, recurrence_mode: dom.recMode.value, notify_creator_on_complete: dom.notifyCreator.checked, reminder_interval_seconds: Number(dom.interval.value), max_reminders: Number(dom.maxReminders.value) };
+    // Skrytý checkbox (úloha pre seba z pohľadu editora) = editor ho nemôže
+    // meniť → pri úprave zachovaj pôvodnú hodnotu (prianie tvorcu), pri novej
+    // úlohe false. Viditeľný checkbox platí tak, ako je zaškrtnutý.
+    const notifyCreator = dom.notifyWrap.hidden ? Boolean(editing?.notify_creator_on_complete ?? false) : dom.notifyCreator.checked;
+    const input = { title: dom.title.value.trim(), notes: dom.note.value.trim(), assigned_to: dom.assigned.value, due_at: inputToIso(dom.date.value, dom.time.value), timezone: editing?.timezone || deviceTimezone(), priority: selectedPriority, pre_reminder_minutes: Number(dom.pre.value), recurrence_rule: dom.rec.value, recurrence_mode: dom.recMode.value, notify_creator_on_complete: notifyCreator, reminder_interval_seconds: Number(dom.interval.value), max_reminders: Number(dom.maxReminders.value) };
     if (!input.title) {
       toast('Napíš názov úlohy', true);
       return;
