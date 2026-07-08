@@ -220,7 +220,7 @@ function taskCard(task) {
       <div class="creator-line">Zadal/a: ${esc(creatorName)} · ${relativeTime(due)}${task.notify_creator_on_complete && task.created_by !== task.assigned_to ? ' · čaká na potvrdenie splnenia' : ''}</div>
       ${task.status === 'rejected' && task.rejection_reason ? `<div class="c-note reject-reason">Odmietnuté: ${esc(task.rejection_reason)}</div>` : ''}
       ${mine && task.status === 'pending' ? `<button type="button" class="link-btn" data-reject-task="${esc(task.id)}">Odmietnuť</button>` : ''}
-      ${mine && task.status !== 'pending' ? `<button type="button" class="link-btn" data-hide-task="${esc(task.id)}">Odstrániť zo svojho zoznamu</button>` : ''}
+      ${(mine || task.created_by === state.user.id) && task.status !== 'pending' ? `<button type="button" class="link-btn" data-hide-task="${esc(task.id)}">Odstrániť zo svojho zoznamu</button>` : ''}
     </div></article>`;
 }
 
@@ -353,11 +353,17 @@ export function openTaskSheet(task = null) {
   dom.pre.value = String(task?.pre_reminder_minutes ?? 0); dom.rec.value = task?.recurrence_rule || 'none'; dom.recMode.value = task?.recurrence_mode || 'after'; dom.recModeWrap.hidden = dom.rec.value === 'none';
   dom.interval.value = String(task?.reminder_interval_seconds || 60); dom.maxReminders.value = String(task?.max_reminders || 10); dom.notifyCreator.checked = Boolean(task?.notify_creator_on_complete);
   dom.prio.querySelectorAll('button').forEach((b) => b.classList.toggle('sel', Number(b.dataset.p) === selectedPriority));
-  dom.deleteBtn.hidden = !task; renderSelectedFiles(); renderExistingAttachments(task); updateNotifyCreatorVisibility(); updateCountdown();
+  // Globálne „Vymazať úlohu" (pre oboch!) len pre živé úlohy — pri hotovej/
+  // odmietnutej je správna akcia „Odstrániť zo svojho zoznamu" na karte;
+  // globálny delete by partnerovi zmazal históriu splnenia.
+  dom.deleteBtn.hidden = !task || terminal; renderSelectedFiles(); renderExistingAttachments(task); updateNotifyCreatorVisibility(); updateCountdown();
   // Issue 3: terminálnu úlohu možno len prezerať – zakáž úpravu polí a uloženie.
   [dom.title, dom.note, dom.assigned, dom.date, dom.time, dom.pre, dom.rec, dom.recMode, dom.interval, dom.maxReminders, dom.notifyCreator, dom.addFiles]
     .forEach((el) => { if (el) el.disabled = terminal; });
   dom.prio.querySelectorAll('button').forEach((b) => { b.disabled = terminal; });
+  // Demo režim nemá kam prílohy uložiť ani ich zobraziť — tlačidlo skry,
+  // inak by príloha „zmizla" a vyzeralo to ako strata dát.
+  dom.addFiles.hidden = state.demoMode;
   const saveBtn = dom.form.querySelector('button[type="submit"]');
   if (saveBtn) { saveBtn.disabled = terminal; saveBtn.hidden = terminal; }
   dom.scrim.classList.add('show'); dom.sheet.classList.add('show'); setTimeout(() => dom.title.focus(), 200);

@@ -61,8 +61,17 @@ function handleForegroundWillDisplay(event) {
 // Web SDK sa načítava z CDN až keď je potrebné (na natívnej platforme nikdy).
 function loadWebSdk() {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const settle = (fn, value) => { if (!settled) { settled = true; clearTimeout(timer); fn(value); } };
+    // Timeout kryje aj prípad, keď script visí BEZ error eventu (rozbité CDN,
+    // captive portál) — inak by Promise visela a settingActionBusy by navždy
+    // zamrazil tlačidlá v Nastaveniach vrátane odhlásenia.
+    const timer = setTimeout(() => {
+      document.querySelector('script[data-onesignal-sdk]')?.remove();
+      settle(reject, new Error('OneSignal SDK sa nepodarilo načítať (timeout). Skontroluj internet.'));
+    }, 15_000);
     window.OneSignalDeferred = window.OneSignalDeferred || [];
-    window.OneSignalDeferred.push((sdk) => resolve(sdk));
+    window.OneSignalDeferred.push((sdk) => settle(resolve, sdk));
     if (document.querySelector('script[data-onesignal-sdk]')) return;
     const script = document.createElement('script');
     script.src = 'https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js';
@@ -70,10 +79,9 @@ function loadWebSdk() {
     script.dataset.onesignalSdk = 'true';
     script.onerror = () => {
       // Chybný tag treba odstrániť — inak by ho ďalší pokus našiel cez
-      // querySelector, nič by nepridal a Promise by visela naveky
-      // (zamrznuté tlačidlá v Nastaveniach vrátane odhlásenia).
+      // querySelector, nič by nepridal a Promise by visela naveky.
       script.remove();
-      reject(new Error('OneSignal SDK sa nepodarilo načítať. Skontroluj internet.'));
+      settle(reject, new Error('OneSignal SDK sa nepodarilo načítať. Skontroluj internet.'));
     };
     document.head.appendChild(script);
   });

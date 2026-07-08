@@ -67,7 +67,7 @@ npm ci
 npm run dev
 ```
 
-Bez vyplneného `.env` sa zobrazí ukážkový režim.
+Verejná cloud konfigurácia (Supabase URL, publishable key, OneSignal App ID) je zámerne zapracovaná priamo v `src/config.js` — appka sa teda aj bez `.env` pripája na testovací cloud. Ukážkový režim sa zobrazí len s `VITE_ALLOW_DEMO_MODE=true` (tlačidlo na prihlasovacej obrazovke). `.env` slúži na prepísanie hodnôt.
 
 ## Produkčný build
 
