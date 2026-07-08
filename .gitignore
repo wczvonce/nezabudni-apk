@@ -43,3 +43,4 @@ supabase/.branches/
 *.apk
 *.aab
 .capacitor/
+.netlify/
