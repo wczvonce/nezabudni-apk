@@ -251,26 +251,34 @@ function translateTaskError(message) {
 }
 
 // Issue 12: príjemca odmietne úlohu s povinným dôvodom.
+// Busy guard ako pri mutateTask — dvojklik/pomalá sieť nesmie spustiť dve
+// súbežné mutácie tej istej úlohy (druhá by skončila mätúcim TASK_CONFLICT).
 async function rejectTaskFromUi(taskId) {
+  if (taskMutationBusy.has(taskId)) return;
   const task = getState().tasks.find((t) => t.id === taskId); if (!task) return;
   const reason = window.prompt('Dôvod odmietnutia (povinný):', '');
   if (reason === null) return;
   if (!reason.trim()) { toast('Dôvod odmietnutia je povinný', true); return; }
+  taskMutationBusy.add(taskId);
   try {
     await rejectTask(task, reason);
     await refreshFromCacheOrCloud();
     toast('Úloha odmietnutá');
   } catch (error) { toast(translateTaskError(error.message) || 'Odmietnutie zlyhalo', true); }
+  finally { taskMutationBusy.delete(taskId); }
 }
 
 // Issue 12: príjemca odstráni terminálnu úlohu zo svojho zoznamu.
 async function hideTaskFromUi(taskId) {
+  if (taskMutationBusy.has(taskId)) return;
   const task = getState().tasks.find((t) => t.id === taskId); if (!task) return;
+  taskMutationBusy.add(taskId);
   try {
     await hideTaskForSelf(task);
     await refreshFromCacheOrCloud();
     toast('Odstránené z tvojho zoznamu');
   } catch (error) { toast(translateTaskError(error.message) || 'Odstránenie zlyhalo', true); }
+  finally { taskMutationBusy.delete(taskId); }
 }
 
 function renderSettings() {
@@ -488,6 +496,13 @@ function checkDueAlarm() {
     });
   });
   if (!task) return;
+  markAlarmShown(task, now);
+  showAlarmForTask(task);
+}
+// Zaúčtovanie zobrazenia alarmu (interval gate + rozpočet max_reminders).
+// Volá sa z checkDueAlarm AJ z kliku na push notifikáciu, aby sa alarm
+// nezobrazoval dvojmo a zobrazenia sa počítali jednotne.
+function markAlarmShown(task, now = Date.now()) {
   const alarmKey = `${task.id}:${task.version}:${effectiveDue(task)}`;
   // Map.set na existujúci kľúč NEobnovuje poradie vloženia – živý kľúč treba
   // presunúť na koniec, inak by ho eviction nižšie vyhodil ako „najstarší"
@@ -503,7 +518,6 @@ function checkDueAlarm() {
     shownAlarmAt.delete(oldest);
     shownAlarmCount.delete(oldest);
   }
-  showAlarmForTask(task);
 }
 // Zobrazenie alarmového okna (Hotovo / OK — počul som / Odložiť / Otvoriť úlohu)
 // pre konkrétnu úlohu. Prípadný otvorený formulár sa zavrie — alarm má prednosť.
@@ -524,12 +538,16 @@ export function openTaskFromNotification(taskId) {
     return;
   }
   // Klik na push pripomienky má položiť otázku „Hotovo / nechať / odložiť?"
-  // (alarmové okno), NIE otvoriť editačný formulár s klávesnicou. Formulár
-  // (detail) sa otvorí len pri úlohách, kde alarm nedáva zmysel — už splnené,
-  // odmietnuté alebo pridelené partnerovi (napr. push „partner splnil").
+  // (alarmové okno), NIE otvoriť editačný formulár s klávesnicou. Alarm ale
+  // LEN pre už splatnú úlohu: push „nová úloha od partnera" chodí hneď pri
+  // vytvorení — alarm na nesplatnej úlohe by cez „OK — počul som" potichu
+  // vypol všetky budúce pripomienky (acknowledged_at) a „Odložiť 15 min" by
+  // presunul termín DOPREDU. Nesplatné/splnené/partnerove → detail.
   const open = (task) => {
-    if (task.status === 'pending' && task.assigned_to === getState().user.id) showAlarmForTask(task);
-    else openTaskSheet(task);
+    if (task.status === 'pending' && task.assigned_to === getState().user.id && dueMs(task) <= Date.now()) {
+      markAlarmShown(task);
+      showAlarmForTask(task);
+    } else openTaskSheet(task);
   };
   const task = getState().tasks.find((t) => t.id === taskId);
   if (task) open(task);

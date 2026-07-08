@@ -41,24 +41,35 @@ function baseTask(id, patch = {}) {
     version: 1, last_changed_by: PARTNER, ...patch,
   };
 }
-const myPending = baseTask('11111111-1111-4111-8111-111111111111');
+const myFuture = baseTask('11111111-1111-4111-8111-111111111111'); // splatná o hodinu
+const myDue = baseTask('44444444-4444-4444-8444-444444444444', { due_at: new Date(Date.now() - 60_000).toISOString(), occurrence_at: new Date(Date.now() - 60_000).toISOString() });
 const myDone = baseTask('22222222-2222-4222-8222-222222222222', { status: 'completed', completed_at: new Date().toISOString(), completed_by: USER });
 const partnersTask = baseTask('33333333-3333-4333-8333-333333333333', { assigned_to: PARTNER, created_by: USER });
 
-await cacheTasks([myPending, myDone, partnersTask]);
-setState({ demoMode: true, user: { id: USER, email: 'a@example.test' }, profile: { id: USER, display_name: 'Ivan' }, pair: { id: PAIR, name: 'I+D' }, members: [{ id: USER, display_name: 'Ivan' }, { id: PARTNER, display_name: 'Dominika' }], tasks: [myPending, myDone, partnersTask], booted: true, activeTab: 'all' });
+await cacheTasks([myFuture, myDue, myDone, partnersTask]);
+setState({ demoMode: true, user: { id: USER, email: 'a@example.test' }, profile: { id: USER, display_name: 'Ivan' }, pair: { id: PAIR, name: 'I+D' }, members: [{ id: USER, display_name: 'Ivan' }, { id: PARTNER, display_name: 'Dominika' }], tasks: [myFuture, myDue, myDone, partnersTask], booted: true, activeTab: 'all' });
 showApp();
 
 const alarmShown = () => document.getElementById('alarmScrim').classList.contains('show');
 const sheetShown = () => document.getElementById('taskSheet').classList.contains('show');
 
-// 1) Moja čakajúca úloha → ALARMOVÉ okno, nie formulár.
-openTaskFromNotification(myPending.id);
-assert.ok(alarmShown(), 'Klik na push mojej čakajúcej úlohy mal otvoriť alarmové okno');
-assert.ok(!sheetShown(), 'Formulár sa nemal otvoriť');
-assert.equal(document.getElementById('alarmTitle').textContent, myPending.title);
+// 0) Moja SPLATNÁ úloha → ALARMOVÉ okno (mohlo sa zobraziť aj samo cez
+// checkDueAlarm pri showApp — klik ho má v každom prípade ukazovať pre ňu).
+openTaskFromNotification(myDue.id);
+assert.ok(alarmShown(), 'Klik na push splatnej úlohy mal otvoriť alarmové okno');
+assert.ok(!sheetShown(), 'Formulár sa pri splatnej úlohe nemal otvoriť');
+assert.equal(document.getElementById('alarmTitle').textContent, myDue.title);
 document.getElementById('alarmOkBtn').click();
 await new Promise((resolve) => setTimeout(resolve, 100));
+
+// 1) Moja NESPLATNÁ úloha (push „nová úloha od partnera") → DETAIL, nie alarm.
+// Alarm na nesplatnej úlohe by cez „OK — počul som" vypol budúce pripomienky
+// a „Odložiť 15 min" by presunul termín dopredu.
+openTaskFromNotification(myFuture.id);
+assert.ok(!alarmShown(), 'Nesplatná úloha nemá zobrazovať alarm');
+assert.ok(sheetShown(), 'Nesplatná úloha mala otvoriť detail');
+document.getElementById('closeSheetBtn').click();
+await new Promise((resolve) => setTimeout(resolve, 50));
 
 // 2) Splnená úloha (napr. push „partner splnil") → detail, nie alarm.
 openTaskFromNotification(myDone.id);

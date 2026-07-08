@@ -53,15 +53,23 @@ function operationAborted() {
   return error;
 }
 
+// Epoch chráni pred dobiehajúcim initom: keď init(A) vytimeoutuje a medzitým
+// prebehne close + init(B), oneskorené dokončenie A NESMIE prepnúť globálny
+// kontext späť na A (inak by sa miešali účty a cache).
+let initEpoch = 0;
+
 export async function initTaskService({ userId, demoMode, pairId }) {
+  const epoch = ++initEpoch;
   const nextContext = { userId, demoMode, pairId };
   const nextDb = new UserDatabase(userId);
   await nextDb.open();
+  if (epoch !== initEpoch) { await nextDb.close()?.catch?.(() => {}); throw operationAborted(); }
   context = nextContext;
   db = nextDb;
 }
 
 export async function closeTaskService() {
+  initEpoch += 1;
   const oldDb = db;
   // Najprv odpoj globálny kontext. Dobiehajúca odpoveď starého účtu tak
   // nikdy nemôže zapísať dáta do databázy nového účtu.
@@ -164,7 +172,8 @@ function demoTaskFromInput(input, existing = null, activeContext = context) {
     created_by: existing?.created_by || activeContext.userId,
     assigned_to: input.p_assigned_to ?? existing?.assigned_to ?? activeContext.userId,
     title: input.p_title ?? existing?.title ?? '',
-    notes: input.p_notes ?? existing?.notes ?? '',
+    // p_notes === null znamená „poznámky vymazané" — nesmie prepadnúť na staré.
+    notes: 'p_notes' in input ? (input.p_notes ?? '') : (existing?.notes ?? ''),
     due_at: input.p_due_at ?? existing?.due_at ?? now,
     timezone: input.p_timezone ?? existing?.timezone ?? CONFIG.defaultTimezone,
     priority: Number(input.p_priority ?? existing?.priority ?? 1),
@@ -381,7 +390,17 @@ export async function hideTaskForSelf(task) {
   return { queued: false };
 }
 
-export async function flushOutbox(signal) {
+// Single-flight: flush volá boot (priamo) aj syncNow — dve súbežné inštancie
+// by si navzájom replayovali už odstránené mutácie a vyrábali fantómové
+// 'failed' záznamy. Druhý volajúci počká na prebiehajúci flush.
+let flushPromise = null;
+export function flushOutbox(signal) {
+  if (flushPromise) return flushPromise;
+  flushPromise = flushOutboxInner(signal).finally(() => { flushPromise = null; });
+  return flushPromise;
+}
+
+async function flushOutboxInner(signal) {
   const snapshot = contextSnapshot();
   if (snapshot.context.demoMode || !navigator.onLine) return { processed: 0, failed: 0, unresolved: 0 };
   if (signal?.aborted) throw operationAborted();
@@ -412,7 +431,11 @@ export async function flushOutbox(signal) {
         item.status = 'pending';
         await snapshot.db.enqueue(item);
         console.warn('Outbox mutation transiently failed; will retry on next sync', item.mutation_id, item.last_error);
-        continue;
+        // Outbox je USPORIADANÁ fronta závislých mutácií (create X → update X).
+        // Pokračovanie by replaylo závislé mutácie predčasne (update na ešte
+        // neexistujúcej úlohe → natrvalo 'failed'), preto sa flush zastaví
+        // a ďalší sync začne znova od hlavy.
+        break;
       }
       // Jedna neplatná alebo konfliktná zmena nesmie navždy zablokovať
       // všetky neskoršie zmeny. Ponecháme ju v outboxe a ukážeme ju

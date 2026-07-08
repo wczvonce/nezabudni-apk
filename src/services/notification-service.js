@@ -37,7 +37,7 @@ function webPushUnsupportedReason() {
 // (notification.additionalData, event.current.id, event.preventDefault).
 function handleNotificationClick(event) {
   const data = event?.notification?.additionalData || {};
-  clickHandler?.({ taskId: data.task_id || null, action: event?.result?.actionId || 'open' });
+  clickHandler?.({ taskId: data.task_id || null, action: event?.result?.actionId || 'open', kind: data.kind || null });
 }
 
 function handleSubscriptionChange(event) {
@@ -55,7 +55,7 @@ function handleForegroundWillDisplay(event) {
   event?.preventDefault?.();
   const notification = event?.getNotification?.() ?? event?.notification;
   const data = notification?.additionalData || {};
-  if (data.task_id) clickHandler?.({ taskId: data.task_id, action: 'foreground' });
+  if (data.task_id) clickHandler?.({ taskId: data.task_id, action: 'foreground', kind: data.kind || null });
 }
 
 // Web SDK sa načítava z CDN až keď je potrebné (na natívnej platforme nikdy).
@@ -68,7 +68,13 @@ function loadWebSdk() {
     script.src = 'https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js';
     script.defer = true;
     script.dataset.onesignalSdk = 'true';
-    script.onerror = () => reject(new Error('OneSignal SDK sa nepodarilo načítať. Skontroluj internet.'));
+    script.onerror = () => {
+      // Chybný tag treba odstrániť — inak by ho ďalší pokus našiel cez
+      // querySelector, nič by nepridal a Promise by visela naveky
+      // (zamrznuté tlačidlá v Nastaveniach vrátane odhlásenia).
+      script.remove();
+      reject(new Error('OneSignal SDK sa nepodarilo načítať. Skontroluj internet.'));
+    };
     document.head.appendChild(script);
   });
 }

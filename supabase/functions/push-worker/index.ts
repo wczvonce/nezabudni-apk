@@ -131,6 +131,33 @@ Deno.serve(async (request) => {
       const responseText = await response.text();
       if (!response.ok) throw new Error(`ONESIGNAL_${response.status}: ${responseText}`);
       const parsed = safeJson(responseText);
+
+      // OneSignal vracia HTTP 200 aj pri mŕtvych subscription ID (reinstall
+      // appky) — len ich vymenuje v errors. Bez deaktivácie by sa mŕtve
+      // riadky hromadili navždy a každý push by mieril aj do prázdna.
+      const errObj: unknown = (parsed as { errors?: unknown })?.errors;
+      const invalidIds = [
+        ...(Array.isArray((errObj as { invalid_player_ids?: unknown[] })?.invalid_player_ids) ? (errObj as { invalid_player_ids: unknown[] }).invalid_player_ids : []),
+        ...(Array.isArray((errObj as { invalid_subscription_ids?: unknown[] })?.invalid_subscription_ids) ? (errObj as { invalid_subscription_ids: unknown[] }).invalid_subscription_ids : []),
+      ].filter((id): id is string => typeof id === 'string' && subscriptionIds.includes(id));
+      if (invalidIds.length) {
+        const { error: deactivateError } = await supabase
+          .from('device_subscriptions')
+          .update({ active: false })
+          .in('subscription_id', invalidIds);
+        if (deactivateError) console.error('Deactivation of invalid subscriptions failed', deactivateError);
+      }
+      // Všetci adresáti odhlásení → deaktivuj a správaj sa ako
+      // NO_ACTIVE_SUBSCRIPTIONS (15-min retry vetva), nie 5× generický fail.
+      if (Array.isArray(errObj) && errObj.some((e) => String(e).toLowerCase().includes('not subscribed'))) {
+        const { error: deactivateAllError } = await supabase
+          .from('device_subscriptions')
+          .update({ active: false })
+          .in('subscription_id', subscriptionIds);
+        if (deactivateAllError) console.error('Deactivation of unsubscribed targets failed', deactivateAllError);
+        throw new Error('NO_ACTIVE_SUBSCRIPTIONS');
+      }
+
       const messageId = typeof parsed?.id === 'string' ? parsed.id : null;
       if (!messageId) throw new Error(`ONESIGNAL_NO_MESSAGE_ID: ${responseText}`);
       const { error: sentError } = await supabase.rpc('mark_notification_sent', { p_job_id: job.id, p_message_id: messageId });

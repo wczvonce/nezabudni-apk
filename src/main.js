@@ -239,7 +239,20 @@ async function bootUser(user, generation) {
     // === NAJLEPŠIA SNAHA: appka je už zobrazená; chyby tu NESMÚ odhlásiť ===
     try {
       const notificationStatus = await withTimeout(
-        initializeNotifications(({ taskId }) => taskId && openTaskFromNotification(taskId)),
+        initializeNotifications(({ taskId, action, kind }) => {
+          if (!taskId) return;
+          // Push doručený s appkou V POPREDÍ nie je klik používateľa — nesmie
+          // sám otvárať alarm/formulár (zahodil by rozpísaný koncept a pri
+          // nesplatnej úlohe by ponúkol škodlivé „OK/Odložiť"). Splatné úlohy
+          // pripomenie in-app budík (checkDueAlarm); tu stačí toast + sync.
+          if (action === 'foreground') {
+            const task = getState().tasks.find((t) => t.id === taskId);
+            if (task) toast(kind === 'task_completed' ? `✓ Splnené: ${task.title}` : `🔔 ${task.title}`);
+            syncNow();
+            return;
+          }
+          openTaskFromNotification(taskId);
+        }),
         'Inicializácia upozornení trvá príliš dlho.',
       );
       if (isCurrentTransition(generation, user.id)) { setState({ notificationStatus }); render(); }
