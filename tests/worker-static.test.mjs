@@ -3,7 +3,10 @@ import { readFile } from 'node:fs/promises';
 
 const worker = await readFile('supabase/functions/push-worker/index.ts', 'utf8');
 assert.match(worker, /idempotency_key:\s*job\.id/, 'OneSignal retry musí používať stabilný idempotency_key');
-assert.match(worker, /AbortSignal\.timeout\(20_000\)/, 'OneSignal request musí mať timeout');
+assert.match(worker, /AbortSignal\.timeout\(10_000\)/, 'OneSignal request musí mať timeout');
+// Deaktivácia mŕtvych subscriptions z OneSignal odpovede (reinstall APK).
+assert.match(worker, /invalid_player_ids/, 'Worker musí deaktivovať invalid subscription IDs z OneSignal odpovede');
+assert.match(worker, /not subscribed/, 'Worker musí spracovať „All included players are not subscribed"');
 assert.match(worker, /ttl:\s*notificationTtl\(job, task\)/, 'Reminder push musí používať kontrolované TTL');
 assert.match(worker, /\.eq\('status', 'processing'\)/, 'Zrušenie jobu musí meniť iba processing job');
 assert.match(worker, /versionMatch/, 'Worker musí zrušiť job zo starej verzie úlohy');

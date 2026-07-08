@@ -59,7 +59,11 @@ Deno.serve(async (request) => {
   // do fronty pre ďalší beh (žiadny job sa nestratí).
   const claimedJobs = (jobs ?? []) as NotificationJob[];
   const startedAt = Date.now();
-  const WORKER_DEADLINE_MS = 25_000;
+  // Rozpočet: cron pg_net má timeout 30 s. Deadline sa kontroluje len medzi
+  // jobmi a jeden OneSignal fetch smie trvať až FETCH_TIMEOUT — worst case je
+  // teda deadline + fetch. 8 s + 10 s < 30 s, takže záverečný requeue
+  // nedokončených jobov stihne prebehnúť pred odpojením klienta.
+  const WORKER_DEADLINE_MS = 8_000;
   let deadlineReached = false;
 
   const results = [];
@@ -109,7 +113,7 @@ Deno.serve(async (request) => {
           'Content-Type': 'application/json; charset=utf-8',
           Authorization: `Key ${oneSignalKey}`,
         },
-        signal: AbortSignal.timeout(20_000),
+        signal: AbortSignal.timeout(10_000),
         body: JSON.stringify({
           app_id: oneSignalAppId,
           target_channel: 'push',

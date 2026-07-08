@@ -33,7 +33,7 @@ try {
   let schema = await readFile('supabase/migrations/001_schema.sql', 'utf8');
   schema = schema.replace(/create extension if not exists pgcrypto;\s*/i, '');
   await db.exec(schema);
-  for (const m of ['004_deep_audit_fixes', '005_offline_absolute_times', '006_terminal_edit_guard', '007_reject_and_hide', '008_fix_null_pair_guard', '009_bug_hunt_2']) {
+  for (const m of ['004_deep_audit_fixes', '005_offline_absolute_times', '006_terminal_edit_guard', '007_reject_and_hide', '008_fix_null_pair_guard', '009_bug_hunt_2', '010_low_priority_fixes']) {
     await db.exec(await readFile(`supabase/migrations/${m}.sql`, 'utf8'));
   }
 

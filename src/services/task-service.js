@@ -536,3 +536,11 @@ export async function fetchAttachments(taskId) {
   assertCurrent(snapshot);
   return data || [];
 }
+
+// Podpísaná (dočasná) URL na otvorenie prílohy — bucket je privátny.
+export async function attachmentSignedUrl(storagePath) {
+  const sb = requireSupabase();
+  const { data, error } = await sb.storage.from(CONFIG.attachmentBucket).createSignedUrl(storagePath, 3600);
+  if (error) throw error;
+  return data.signedUrl;
+}

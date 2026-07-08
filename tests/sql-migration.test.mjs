@@ -25,6 +25,7 @@ try {
   await db.exec(await readFile('supabase/migrations/007_reject_and_hide.sql','utf8'));
   await db.exec(await readFile('supabase/migrations/008_fix_null_pair_guard.sql','utf8'));
   await db.exec(await readFile('supabase/migrations/009_bug_hunt_2.sql','utf8'));
+  await db.exec(await readFile('supabase/migrations/010_low_priority_fixes.sql','utf8'));
   console.log('SQL MIGRATION OK');
   const funcs = await db.query(`select proname, oidvectortypes(proargtypes) args from pg_proc join pg_namespace n on n.oid=pronamespace where n.nspname='public' order by proname`);
   console.log(funcs.rows.filter(r=>r.proname.startsWith('api_')||r.proname.includes('notification')).map(r=>r.proname+'('+r.args+')').join('\n'));

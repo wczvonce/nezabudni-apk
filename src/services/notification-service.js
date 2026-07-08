@@ -179,6 +179,16 @@ export async function unregisterCurrentDevice() {
   currentSubscriptionId = null;
 }
 
+// Núdzový fallback pri odhlásení: keď OneSignal inicializácia zlyhala,
+// subscription_id nepoznáme — ale device_install_id (localStorage) máme vždy.
+// Server deaktivuje VŠETKY subscriptions tohto zariadenia, inak by odhlásený
+// telefón ďalej dostával pushe používateľa.
+export async function unregisterCurrentInstall() {
+  if (!supabase) return;
+  const { error } = await supabase.rpc('api_unregister_install', { p_device_install_id: deviceInstallId() });
+  if (error) throw error;
+}
+
 export async function sendTestNotification() {
   if (!supabase) throw new Error('Cloud nie je nakonfigurovaný.');
   const { data, error } = await supabase.rpc('api_send_test_notification');

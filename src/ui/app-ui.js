@@ -13,6 +13,8 @@ import {
   flushOutbox,
   retryFailedOutbox,
   discardFailedOutbox,
+  fetchAttachments,
+  attachmentSignedUrl,
 } from '../services/task-service.js';
 import {
   requestNotificationPermission,
@@ -20,6 +22,7 @@ import {
   sendTestNotification,
   diagnostics,
   unregisterCurrentDevice,
+  unregisterCurrentInstall,
   suspendDeviceRegistration,
 } from '../services/notification-service.js';
 import { signOut } from '../services/auth.js';
@@ -89,7 +92,7 @@ export function bindUi() {
     userName: $('userName'), userAvatar: $('userAvatar'), syncState: $('syncState'), scrim: $('scrim'), sheet: $('taskSheet'),
     form: $('taskForm'), title: $('fTitle'), note: $('fNote'), assigned: $('fAssigned'), notifyWrap: $('notifyCreatorWrap'), notifyCreator: $('fNotifyCreator'),
     date: $('fDate'), time: $('fTime'), countdown: $('fCountdown'), prio: $('fPrio'), pre: $('fPre'), rec: $('fRec'), recMode: $('fRecMode'), recModeWrap: $('fRecModeWrap'),
-    interval: $('fInterval'), maxReminders: $('fMaxReminders'), files: $('fFiles'), addFiles: $('addFilesBtn'), attList: $('fAttList'), fileProgress: $('fileProgress'),
+    interval: $('fInterval'), maxReminders: $('fMaxReminders'), files: $('fFiles'), addFiles: $('addFilesBtn'), attList: $('fAttList'), existingAtt: $('fExistingAtt'), fileProgress: $('fileProgress'),
     deleteBtn: $('deleteTaskBtn'), closeSheetBtn: $('closeSheetBtn'), toast: $('toast'), alarmScrim: $('alarmScrim'), alarmTitle: $('alarmTitle'), alarmNote: $('alarmNote'),
     alarmOk: $('alarmOkBtn'), alarmDone: $('alarmDoneBtn'), alarmOpen: $('alarmOpenBtn'), snooze15: $('snooze15Btn'), snooze60: $('snooze60Btn'),
   });
@@ -113,6 +116,13 @@ export function bindUi() {
   dom.attList.addEventListener('click', (event) => {
     const button = event.target.closest('[data-remove-file]'); if (!button) return;
     selectedFiles.splice(Number(button.dataset.removeFile), 1); renderSelectedFiles();
+  });
+  dom.existingAtt.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-open-attachment]'); if (!button) return;
+    try {
+      const url = await attachmentSignedUrl(button.dataset.openAttachment);
+      window.open(url, '_blank');
+    } catch (error) { console.warn('Attachment open failed', error); toast('Prílohu sa nepodarilo otvoriť', true); }
   });
   dom.tabs.addEventListener('click', (event) => {
     const tab = event.target.closest('[data-tab]'); if (!tab) return;
@@ -318,6 +328,10 @@ async function handleSettingAction(action) {
         // odhlasovania znova zaregistrovať (okno unregister -> signOut).
         suspendDeviceRegistration();
         await unregisterCurrentDevice();
+        // Fallback pre prípad zlyhanej OneSignal inicializácie (subscription_id
+        // nepoznáme): deaktivuj všetky subscriptions tohto zariadenia podľa
+        // device_install_id — inak by odhlásený telefón ďalej dostával pushe.
+        await unregisterCurrentInstall();
         await signOut();
       }
     }
@@ -339,10 +353,11 @@ export function openTaskSheet(task = null) {
   dom.pre.value = String(task?.pre_reminder_minutes ?? 0); dom.rec.value = task?.recurrence_rule || 'none'; dom.recMode.value = task?.recurrence_mode || 'after'; dom.recModeWrap.hidden = dom.rec.value === 'none';
   dom.interval.value = String(task?.reminder_interval_seconds || 60); dom.maxReminders.value = String(task?.max_reminders || 10); dom.notifyCreator.checked = Boolean(task?.notify_creator_on_complete);
   dom.prio.querySelectorAll('button').forEach((b) => b.classList.toggle('sel', Number(b.dataset.p) === selectedPriority));
-  dom.deleteBtn.hidden = !task; renderSelectedFiles(); updateNotifyCreatorVisibility(); updateCountdown();
+  dom.deleteBtn.hidden = !task; renderSelectedFiles(); renderExistingAttachments(task); updateNotifyCreatorVisibility(); updateCountdown();
   // Issue 3: terminálnu úlohu možno len prezerať – zakáž úpravu polí a uloženie.
-  [dom.title, dom.note, dom.assigned, dom.date, dom.time, dom.pre, dom.rec, dom.recMode, dom.interval, dom.maxReminders, dom.notifyCreator]
+  [dom.title, dom.note, dom.assigned, dom.date, dom.time, dom.pre, dom.rec, dom.recMode, dom.interval, dom.maxReminders, dom.notifyCreator, dom.addFiles]
     .forEach((el) => { if (el) el.disabled = terminal; });
+  dom.prio.querySelectorAll('button').forEach((b) => { b.disabled = terminal; });
   const saveBtn = dom.form.querySelector('button[type="submit"]');
   if (saveBtn) { saveBtn.disabled = terminal; saveBtn.hidden = terminal; }
   dom.scrim.classList.add('show'); dom.sheet.classList.add('show'); setTimeout(() => dom.title.focus(), 200);
@@ -355,6 +370,18 @@ function closeTaskSheet() { dom.scrim.classList.remove('show'); dom.sheet.classL
 // (bug: Dominika zaškrtla, Ivan upravil čas → upozornenie zmizlo).
 function updateNotifyCreatorVisibility() { dom.notifyWrap.hidden = dom.assigned.value === getState().user.id; }
 function updateCountdown() { if (!dom.date.value || !dom.time.value) return; dom.countdown.textContent = relativeTime(inputToIso(dom.date.value, dom.time.value)); }
+// Už uložené prílohy existujúcej úlohy — doteraz sa dali nahrať, ale nikde
+// nezobrazovali. Načítanie je async; guard cez editingTaskId zabráni vloženiu
+// do medzitým otvorenej inej úlohy. Klik otvorí podpísanú URL.
+function renderExistingAttachments(task) {
+  dom.existingAtt.innerHTML = '';
+  if (!task || getState().demoMode || !navigator.onLine) return;
+  fetchAttachments(task.id).then((rows) => {
+    if (getState().editingTaskId !== task.id || !rows.length) return;
+    dom.existingAtt.innerHTML = rows.map((a) => `<button type="button" class="att-item att-open" data-open-attachment="${esc(a.storage_path)}"><span class="att-icon">${(a.mime_type || '').startsWith('image/') ? '🖼️' : '📄'}</span><div class="att-name">${esc(a.filename)}<div class="att-size">${Math.ceil((a.size_bytes || 0) / 1024)} KB</div></div><span class="att-dl">↗</span></button>`).join('');
+  }).catch((error) => console.warn('Attachments load failed', error));
+}
+
 function renderSelectedFiles() { dom.attList.innerHTML = selectedFiles.map((file, i) => `<div class="att-item"><span class="att-icon">${file.type.startsWith('image/') ? '🖼️' : '📄'}</span><div class="att-name">${esc(file.name)}<div class="att-size">${Math.ceil(file.size / 1024)} KB</div></div><button type="button" class="att-del" data-remove-file="${i}">×</button></div>`).join(''); dom.fileProgress.textContent = selectedFiles.length ? `${selectedFiles.length} príloh pripravených na uloženie` : ''; }
 
 async function saveTaskFromForm(event) {
@@ -374,9 +401,18 @@ async function saveTaskFromForm(event) {
     // meniť → pri úprave zachovaj pôvodnú hodnotu (prianie tvorcu), pri novej
     // úlohe false. Viditeľný checkbox platí tak, ako je zaškrtnutý.
     const notifyCreator = dom.notifyWrap.hidden ? Boolean(editing?.notify_creator_on_complete ?? false) : dom.notifyCreator.checked;
-    const input = { title: dom.title.value.trim(), notes: dom.note.value.trim(), assigned_to: dom.assigned.value, due_at: inputToIso(dom.date.value, dom.time.value), timezone: editing?.timezone || deviceTimezone(), priority: selectedPriority, pre_reminder_minutes: Number(dom.pre.value), recurrence_rule: dom.rec.value, recurrence_mode: dom.recMode.value, notify_creator_on_complete: notifyCreator, reminder_interval_seconds: Number(dom.interval.value), max_reminders: Number(dom.maxReminders.value) };
+    // timezone vždy z aktuálneho zariadenia — due_at sa počíta z jeho wall-clocku,
+    // takže stará zóna z čias vytvorenia by rozhodila serverové opakovanie.
+    const input = { title: dom.title.value.trim(), notes: dom.note.value.trim(), assigned_to: dom.assigned.value, due_at: inputToIso(dom.date.value, dom.time.value), timezone: deviceTimezone(), priority: selectedPriority, pre_reminder_minutes: Number(dom.pre.value), recurrence_rule: dom.rec.value, recurrence_mode: dom.recMode.value, notify_creator_on_complete: notifyCreator, reminder_interval_seconds: Number(dom.interval.value), max_reminders: Number(dom.maxReminders.value) };
     if (!input.title) {
       toast('Napíš názov úlohy', true);
+      return;
+    }
+    // Predpripomienka dlhšia/rovná perióde opakovania by nikdy nevystrelila —
+    // ďalší výskyt vzniká až pri splatnosti predošlého, čas by bol v minulosti.
+    const RECURRENCE_MINUTES = { daily: 1440, weekly: 10080, monthly: 40320 };
+    if (input.recurrence_rule !== 'none' && input.pre_reminder_minutes >= (RECURRENCE_MINUTES[input.recurrence_rule] || Infinity)) {
+      toast('Predpripomienka musí byť kratšia ako perióda opakovania', true);
       return;
     }
     dom.fileProgress.textContent = 'Ukladám…';
