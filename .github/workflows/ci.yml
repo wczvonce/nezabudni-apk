@@ -40,6 +40,11 @@ jobs:
           java-version: '21'
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # Len to, čo assembleDebug reálne potrebuje. Default ťahá aj balík
+          # emulátora, ktorého download na runneroch opakovane padá na
+          # „Error on ZipFile unknown archive" (flaky CI 2026-07-08 a 07-09).
+          packages: 'platform-tools'
       - name: Clean install
         run: npm ci
       - name: Validate Android package
