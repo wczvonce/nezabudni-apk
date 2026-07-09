@@ -48,13 +48,20 @@ function handleSubscriptionChange(event) {
   }
 }
 
-// Issue 8: keď je appka v popredí, NEZOBRAZUJ natívnu notifikáciu – appka má
-// vlastné in-app upozornenie (alarm/modal). Tak sa nezobrazia dve naraz.
-// V pozadí/zatvorená sa foregroundWillDisplay nespustí, takže natívny push funguje.
+// Issue 8: v popredí sa potláča natívna notifikácia LEN pre pripomienky —
+// tie má appka ako vlastný in-app budík a dve upozornenia naraz by boli
+// otravné. Správy „partner splnil / nová úloha" ale žiadny in-app budík
+// nemajú, takže musia PÍPNUŤ aj s otvorenou appkou (Ivan si pri otvorenej
+// appke nevšimol splnenie úlohy — 3-sekundový toast nestačí).
+export function shouldDisplayInForeground(kind) {
+  return !['task_pre', 'task_due', 'task_repeat'].includes(kind);
+}
+
 function handleForegroundWillDisplay(event) {
-  event?.preventDefault?.();
   const notification = event?.getNotification?.() ?? event?.notification;
   const data = notification?.additionalData || {};
+  if (shouldDisplayInForeground(data.kind)) return; // nechaj systém normálne zobraziť + pípnuť
+  event?.preventDefault?.();
   if (data.task_id) clickHandler?.({ taskId: data.task_id, action: 'foreground', kind: data.kind || null });
 }
 

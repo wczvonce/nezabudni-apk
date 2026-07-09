@@ -1,7 +1,7 @@
 {
   "name": "nezabudni-v19",
   "private": true,
-  "version": "0.2.10",
+  "version": "0.2.11",
   "type": "module",
   "description": "Nezabudni testovacia – spoločné pripomienky pre Ivana a Dominiku",
   "scripts": {

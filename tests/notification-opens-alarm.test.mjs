@@ -82,6 +82,17 @@ openTaskFromNotification(partnersTask.id);
 assert.ok(!alarmShown(), 'Partnerova úloha nemá zobrazovať alarm');
 assert.ok(sheetShown(), 'Partnerova úloha mala otvoriť detail');
 
+// Regres (2026-07-09): push „partner splnil / nová úloha" musí PÍPNUŤ aj
+// s appkou v popredí (žiadny in-app budík ho nenahrádza). Potláčajú sa len
+// pripomienky, ktoré majú vlastný in-app alarm.
+const { shouldDisplayInForeground } = await import('../src/services/notification-service.js');
+for (const kind of ['task_completed', 'task_assigned', 'test', null, undefined]) {
+  assert.ok(shouldDisplayInForeground(kind), `${kind} má v popredí pípnuť natívne`);
+}
+for (const kind of ['task_pre', 'task_due', 'task_repeat']) {
+  assert.ok(!shouldDisplayInForeground(kind), `${kind} má byť v popredí potlačený (in-app budík)`);
+}
+
 await closeTaskService();
 resetState();
 console.log('NOTIFICATION OPENS ALARM OK');
