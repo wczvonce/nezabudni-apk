@@ -26,7 +26,13 @@ export function localAlarmAllowed(task, { userId, now, dueMs, lastShownAt = 0, s
   if (userId != null && task.assigned_to !== userId) return false;
   const max = maxReminders(task);
   if (max <= 0) return false;
-  if (shownCount >= max) return false;                       // rozpočet vyčerpaný
+  // SPOLOČNÝ rozpočet upozornení (audit A3): „Najviac 5×" znamená 5 upozornení
+  // SPOLU — serverové pushe (reminders_sent, prežije reštart appky) + lokálne
+  // in-app alarmy (shownCount). Bez toho by používateľ dostal až dvojnásobok
+  // a po reštarte appky ďalšie (lokálne počítadlo sa nuluje, serverové nie).
+  const sent = Number(task.reminders_sent);
+  const used = shownCount + (Number.isFinite(sent) && sent > 0 ? sent : 0);
+  if (used >= max) return false;                             // rozpočet vyčerpaný
   if (!Number.isFinite(dueMs) || dueMs > now) return false;  // ešte nie je čas
   return (now - lastShownAt) >= reminderIntervalMs(task);     // interval
 }

@@ -21,6 +21,9 @@
     X-Content-Type-Options = "nosniff"
     X-Frame-Options = "DENY"
     Referrer-Policy = "no-referrer"
+    # Audit A8: CSP zatiaľ len v REPORT-ONLY režime — nič nerozbije, len loguje
+    # porušenia do konzoly. Po overení v praxi premenovať na Content-Security-Policy.
+    Content-Security-Policy-Report-Only = "default-src 'self'; script-src 'self' https://cdn.onesignal.com; connect-src 'self' https://ofwouqpqzcpjnigcgygz.supabase.co wss://ofwouqpqzcpjnigcgygz.supabase.co https://api.onesignal.com https://cdn.onesignal.com https://fonts.googleapis.com https://fonts.gstatic.com; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'"
 
 [[headers]]
   for = "/index.html"

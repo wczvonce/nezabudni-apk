@@ -2,6 +2,8 @@ const ENV = import.meta.env || {};
 
 export const CONFIG = Object.freeze({
   appName: 'Nezabudni testovacia',
+  // Zdroj pravdy pre verziu webu je package.json — pri release synchronizovať.
+  appVersion: '0.2.12',
   bundleId: 'sk.povraznik.nezabudni.test',
   supabaseUrl: ENV.VITE_SUPABASE_URL?.trim() || 'https://ofwouqpqzcpjnigcgygz.supabase.co',
   supabaseKey: ENV.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() || 'sb_publishable_q5xQ1rNFeYQsuUtjXllIvg_aJft17Qy',

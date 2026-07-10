@@ -67,6 +67,20 @@ export class UserDatabase {
     return requestToPromise(db.transaction('tasks').objectStore('tasks').getAll());
   }
 
+  // Jednoduché per-účet key/value nastavenia (store 'settings' existuje od VERSION 1).
+  async getSetting(key) {
+    const db = await this.open();
+    const row = await requestToPromise(db.transaction('settings').objectStore('settings').get(key));
+    return row ? row.value : undefined;
+  }
+
+  async putSetting(key, value) {
+    const db = await this.open();
+    const tx = db.transaction('settings', 'readwrite');
+    tx.objectStore('settings').put({ key, value });
+    await transactionDone(tx);
+  }
+
   async deleteTask(id) {
     const db = await this.open();
     const tx = db.transaction('tasks', 'readwrite');

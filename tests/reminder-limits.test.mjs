@@ -36,6 +36,14 @@ assert.equal(localAlarmAllowed(base, opts({ lastShownAt: now - 61_000 })), true,
 // neplatný interval nesmie obísť limit
 assert.equal(localAlarmAllowed({ ...base, reminder_interval_seconds: null, max_reminders: 1 }, opts({ shownCount: 1 })), false);
 
+// SPOLOČNÝ rozpočet (audit A3): serverové pushe sa počítajú do limitu
+assert.equal(localAlarmAllowed({ ...base, max_reminders: 3, reminders_sent: 3 }, opts({ shownCount: 0 })), false, 'server minul celý rozpočet → lokálny alarm nie');
+assert.equal(localAlarmAllowed({ ...base, max_reminders: 5, reminders_sent: 3 }, opts({ shownCount: 1 })), true, '3 pushe + 1 alarm < 5 → smie');
+assert.equal(localAlarmAllowed({ ...base, max_reminders: 5, reminders_sent: 3 }, opts({ shownCount: 2 })), false, '3 pushe + 2 alarmy = 5 → stop');
+assert.equal(localAlarmAllowed({ ...base, max_reminders: 3, reminders_sent: -1 }, opts({ shownCount: 0 })), true, 'záporné/neplatné reminders_sent sa ignoruje');
+// reštart appky: shownCount=0, ale serverový počet ostáva → limit drží
+assert.equal(localAlarmAllowed({ ...base, max_reminders: 2, reminders_sent: 2 }, opts({ shownCount: 0 })), false, 'po reštarte appky server budget stále platí');
+
 // statická kontrola app-ui.js
 const ui = fs.readFileSync(new URL('../src/ui/app-ui.js', import.meta.url), 'utf8');
 assert.match(ui, /localAlarmAllowed/, 'checkDueAlarm používa localAlarmAllowed');

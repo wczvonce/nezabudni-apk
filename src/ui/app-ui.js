@@ -15,6 +15,7 @@ import {
   discardFailedOutbox,
   fetchAttachments,
   attachmentSignedUrl,
+  outboxCounts,
 } from '../services/task-service.js';
 import {
   requestNotificationPermission,
@@ -27,6 +28,7 @@ import {
 } from '../services/notification-service.js';
 import { signOut } from '../services/auth.js';
 import { platform } from '../lib/platform.js';
+import { CONFIG } from '../config.js';
 import { withAbortTimeout } from '../lib/async.js';
 import { localAlarmAllowed } from '../lib/reminders.js';
 
@@ -121,7 +123,7 @@ export function bindUi() {
     const button = event.target.closest('[data-open-attachment]'); if (!button) return;
     try {
       const url = await attachmentSignedUrl(button.dataset.openAttachment);
-      window.open(url, '_blank');
+      window.open(url, '_blank', 'noopener,noreferrer');
     } catch (error) { console.warn('Attachment open failed', error); toast('Prílohu sa nepodarilo otvoriť', true); }
   });
   dom.tabs.addEventListener('click', (event) => {
@@ -209,7 +211,9 @@ function renderTaskList() {
 function taskCard(task) {
   const state = getState(); const assignedName = nameById(task.assigned_to); const creatorName = nameById(task.created_by);
   const overdue = isOverdue(task); const completed = task.status === 'completed'; const mine = task.assigned_to === state.user.id;
-  const ownerClass = assignedName.toLowerCase().includes('dominika') ? 'dominika' : '';
+  // Audit A11: farba podľa PRIRADENIA (partnerova úloha), nie podľa textu mena.
+  // CSS trieda ostáva 'dominika' kvôli existujúcim štýlom.
+  const ownerClass = task.assigned_to === state.user.id ? '' : 'dominika';
   const statusClass = completed ? 's-completed done-strike' : overdue ? 's-overdue' : task.snoozed_until ? 's-snoozed' : 's-active';
   const due = task.snoozed_until || task.due_at;
   const priority = Number(task.priority || 1);
@@ -294,6 +298,7 @@ async function hideTaskFromUi(taskId) {
 function renderSettings() {
   const state = getState(); const d = state.notificationStatus || {};
   dom.main.innerHTML = `<div class="settings-group"><h3>Účet a dvojica</h3><div class="diag-grid"><div class="diag-row"><span>Prihlásený</span><strong>${esc(state.profile?.display_name || state.user.email)}</strong></div><div class="diag-row"><span>Dvojica</span><strong>${esc(state.pair?.name || 'Ukážkový režim')}</strong></div><div class="diag-row"><span>Členovia</span><strong>${state.members.map((m) => esc(m.display_name)).join(' + ')}</strong></div></div></div>
+  <div class="settings-group"><h3>Aplikácia a synchronizácia</h3><div class="diag-grid"><div class="diag-row"><span>Verzia webu</span><strong>${esc(CONFIG.appVersion || '—')}</strong></div><div class="diag-row"><span>Backend schéma</span><strong class="${(state.backendSchema || 0) >= 11 ? 'status-ok' : 'status-warn'}">${state.backendSchema ? `v${state.backendSchema}` : 'neoverená'}</strong></div><div class="diag-row"><span>Posledná synchronizácia</span><strong>${state.lastSyncAt ? `${fmtDate(state.lastSyncAt)} ${fmtTime(state.lastSyncAt)}` : '—'}</strong></div><div class="diag-row"><span>Čakajúce zmeny</span><strong class="${state.pendingOutboxCount ? 'status-warn' : 'status-ok'}">${state.pendingOutboxCount || 0}</strong></div><div class="diag-row"><span>Zlyhané zmeny</span><strong class="${state.failedOutboxCount ? 'status-warn' : 'status-ok'}">${state.failedOutboxCount || 0}</strong></div></div></div>
   <div class="settings-group"><h3>Notifikácie</h3><div class="diag-grid"><div class="diag-row"><span>Platforma</span><strong>${esc(d.platform || platform.name)}</strong></div><div class="diag-row"><span>Natívna aplikácia</span><strong class="${d.native || d.webPush ? 'status-ok' : 'status-warn'}">${d.native ? 'Áno' : d.webPush ? 'Nie – web s podporou upozornení' : 'Nie – iba webový náhľad'}</strong></div><div class="diag-row"><span>OneSignal</span><strong class="${d.configured ? 'status-ok' : 'status-warn'}">${d.configured ? 'Nakonfigurovaný' : 'Čaká na App ID'}</strong></div><div class="diag-row"><span>Povolenie</span><strong>${esc(d.permission || 'nezistené')}</strong></div><div class="diag-row"><span>Subscription</span><strong class="${d.subscriptionId ? 'status-ok' : 'status-warn'}">${d.subscriptionId ? 'Aktívna' : 'Zatiaľ nevytvorená'}</strong></div></div></div>
   <div class="settings-group"><button class="secondary-btn" data-setting-action="permission">Zapnúť upozornenia</button><button class="secondary-btn" style="margin-top:9px" data-setting-action="test">Poslať testovaciu notifikáciu</button><button class="secondary-btn" style="margin-top:9px" data-setting-action="sync">Synchronizovať teraz</button></div>
   ${state.failedOutboxCount ? `<div class="settings-group"><h3>Nevyriešené offline zmeny</h3><div class="notice">${state.failedOutboxCount} zmien sa nepodarilo bezpečne zlúčiť s cloudom. Môžeš ich skúsiť znova alebo zahodiť a načítať aktuálny stav zo servera.</div><button class="secondary-btn" data-setting-action="retry-outbox">Skúsiť znova</button><button class="logout-btn" style="margin-top:9px" data-setting-action="discard-outbox">Zahodiť nevyriešené zmeny</button></div>` : ''}
@@ -438,10 +443,10 @@ async function saveTaskFromForm(event) {
 async function deleteCurrentTask() {
   if (taskFormBusy) return;
   const task = getState().tasks.find((t) => t.id === getState().editingTaskId); if (!task) return;
-  if (!confirm(`Vymazať úlohu „${task.title}“?`)) return;
+  if (!confirm(`Vymazať úlohu „${task.title}“ pre teba AJ partnera? (Ak ju chceš len skryť zo svojho zoznamu, použi „Odstrániť zo svojho zoznamu“ na karte hotovej úlohy.)`)) return;
   taskFormBusy = true;
   dom.deleteBtn.disabled = true;
-  try { const result = await deleteTask(task); await refreshFromCacheOrCloud(); closeTaskSheet(); toast(result.queued ? 'Vymazanie čaká na synchronizáciu' : 'Úloha bola vymazaná'); } catch (error) { toast(error.message, true); }
+  try { const result = await deleteTask(task); await refreshFromCacheOrCloud(); closeTaskSheet(); toast(result.queued ? 'Vymazanie čaká na synchronizáciu' : 'Úloha bola vymazaná'); } catch (error) { toast(translateTaskError(error.message) || 'Vymazanie zlyhalo', true); }
   finally { taskFormBusy = false; dom.deleteBtn.disabled = false; }
 }
 
@@ -487,8 +492,12 @@ async function performSync(showToast) {
     if (getState().user?.id !== userId) return;
     const tasks = await withAbortTimeout((signal) => fetchTasks(signal), { timeoutMs: SYNC_STEP_TIMEOUT_MS, message: 'Načítanie úloh trvá príliš dlho.' });
     if (getState().user?.id !== userId) return;
-    const syncError = outbox.unresolved ? `${outbox.unresolved} offline zmien vyžaduje kontrolu` : null;
-    setState({ tasks, syncing: false, syncError, failedOutboxCount: outbox.unresolved || 0 });
+    // Audit A11: odlíš „synchronizované" od „pripojené, ale zmena ešte čaká".
+    const counts = await outboxCounts();
+    const syncError = counts.failed
+      ? `${counts.failed} offline zmien vyžaduje kontrolu`
+      : counts.pending ? `${counts.pending} zmien ešte čaká na synchronizáciu` : null;
+    setState({ tasks, syncing: false, syncError, failedOutboxCount: counts.failed, pendingOutboxCount: counts.pending, lastSyncAt: new Date().toISOString() });
     if (showToast) toast(syncError || 'Synchronizácia dokončená', Boolean(syncError));
   } catch (error) {
     if (getState().user?.id !== userId) return;

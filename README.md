@@ -1,4 +1,6 @@
-# Nezabudni v19.0.2.2 – hĺbkovo auditovaná testovacia verzia
+# Nezabudni testovacia
+
+> Zdroj pravdy pre verzie: web `package.json` (`version`), Android `android/app/build.gradle` (`versionName`/`versionCode`). Číslovania sú nezávislé.
 
 Nový samostatný projekt aplikácie **Nezabudni testovacia** pre Ivana Povrazníka a Dominiku. Pôvodná aplikácia na `magenta-palmier-e4333d.netlify.app` sa týmto projektom nemení.
 

@@ -110,15 +110,52 @@ export async function fetchTasks(signal) {
   if (error) throw error;
   assertCurrent(snapshot);
   // Issue 12: vynechaj úlohy, ktoré si používateľ odstránil zo svojho zoznamu.
+  // Fail-safe: pri zlyhaní dotazu použi POSLEDNÝ ZNÁMY zoznam skrytých ID
+  // z lokálnych nastavení — fail-open (hidden=∅) by skryté úlohy vrátil do
+  // cache a používateľovi by sa "odstránené" úlohy znova zjavili.
+  let hidden;
   const { data: hiddenRows, error: hiddenError } = await sb.from('task_hidden').select('task_id');
-  if (hiddenError) console.warn('Filter skrytých úloh zlyhal; zobrazujem všetky úlohy', hiddenError.message);
-  const hidden = new Set((hiddenRows || []).map((r) => r.task_id));
+  if (hiddenError) {
+    const cached = await snapshot.db.getSetting('hidden_task_ids').catch(() => undefined);
+    hidden = new Set(Array.isArray(cached) ? cached : []);
+    console.warn('Filter skrytých úloh zlyhal; používam posledný známy zoznam', hiddenError.message);
+  } else {
+    hidden = new Set((hiddenRows || []).map((r) => r.task_id));
+    await snapshot.db.putSetting('hidden_task_ids', [...hidden]).catch(() => {});
+  }
   const visible = (data || []).filter((t) => !hidden.has(t.id));
   // Issue 9: dobehnuté po timeoute? Nezapisuj – novší sync už mohol uložiť čerstvý stav.
   if (signal?.aborted) throw operationAborted();
-  await snapshot.db.replaceTasks(visible);
+  // MERGE VRSTVA: úlohy s ČAKAJÚCOU offline mutáciou sa nesmú prepísať starým
+  // serverovým stavom (server ešte mutáciu nevidel — flush zlyhal na 429/500/
+  // timeoute a mutácia čaká v outboxe). Bez tohto by optimistická zmena
+  // zmizla z UI a používateľ by ju vytvoril duplicitne. Lokálna (optimistická)
+  // verzia má version = serverová_bázová + 1: ak server stále hlási staršiu
+  // verziu (alebo úlohu nepozná), platí lokálna; ak server medzitým dostal
+  // novšiu (partner), platí serverová a konflikt vyrieši flush (TASK_CONFLICT).
+  // Aj 'failed' položky: kým používateľ nerozhodne (Skúsiť znova / Zahodiť),
+  // jeho zmena musí ostať viditeľná — inak by banner hovoril o zmene,
+  // ktorú v zozname nevidí.
+  const pendingItems = [...await snapshot.db.outboxItems(), ...await snapshot.db.failedOutboxItems()];
+  const merged = [...visible];
+  if (pendingItems.length) {
+    const cachedById = new Map((await snapshot.db.getTasks()).map((t) => [t.id, t]));
+    const byId = new Map(merged.map((t) => [t.id, t]));
+    for (const item of pendingItems) {
+      const taskId = item.payload?.p_id || item.payload?.p_task_id;
+      const local = taskId ? cachedById.get(taskId) : null;
+      if (!local) continue;
+      const server = byId.get(taskId);
+      if (!server || Number(local.version) > Number(server.version)) {
+        byId.set(taskId, local);
+      }
+    }
+    merged.length = 0;
+    merged.push(...byId.values());
+  }
+  await snapshot.db.replaceTasks(merged);
   assertCurrent(snapshot);
-  return visible;
+  return merged;
 }
 
 async function callRpc(action, payload) {
@@ -388,6 +425,15 @@ export async function hideTaskForSelf(task) {
   if (error) throw error;
   assertCurrent(snapshot);
   return { queued: false };
+}
+
+// Diagnostika (audit A9/A11): koľko zmien čaká a koľko zlyhalo.
+export async function outboxCounts() {
+  const snapshot = contextSnapshot();
+  if (snapshot.context.demoMode) return { pending: 0, failed: 0 };
+  const pending = (await snapshot.db.outboxItems()).length;
+  const failed = (await snapshot.db.failedOutboxItems()).length;
+  return { pending, failed };
 }
 
 // Single-flight: flush volá boot (priamo) aj syncNow — dve súbežné inštancie

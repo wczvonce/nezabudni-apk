@@ -9,7 +9,7 @@ V SQL Editore spusti v tomto poradí:
 1. `supabase/migrations/001_schema.sql`
 2. vytvor používateľov podľa časti 2,
 3. `supabase/migrations/002_setup_pair_template.sql`
-4. **VŠETKY inkrementálne migrácie v poradí**: `004`, `005`, `006`, `007`, `008`, `009`, `010` — klient predpokladá finálne verzie funkcií z najnovšej migrácie (offline snooze s absolútnym časom je z 005, odmietnutie/skrytie zo 007, NULL-safe pair guard z 008, opravy workera z 009/010). Databáza len s 001 sa správa inak než testy.
+4. **VŠETKY inkrementálne migrácie v poradí**: `004`, `005`, `006`, `007`, `008`, `009`, `010`, `011` — klient predpokladá finálne verzie funkcií z najnovšej migrácie (offline snooze s absolútnym časom je z 005, odmietnutie/skrytie zo 007, NULL-safe pair guard z 008, opravy workera z 009/010). Databáza len s 001 sa správa inak než testy.
 
 Ak už bola staršia verzia schémy nasadená, nespúšťaj `001_schema.sql` znova naslepo — spusti len chýbajúce inkrementálne migrácie (sú idempotentné `create or replace`).
 

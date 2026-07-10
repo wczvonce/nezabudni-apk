@@ -158,17 +158,18 @@ async function bootDemo() {
 
 async function bootDemoInner() {
   showLoading(true);
-  const ivan = { id: '11111111-1111-4111-8111-111111111111', display_name: 'Ivan Povrazník', email: 'wczvonce@gmail.com' };
-  const dominika = { id: '22222222-2222-4222-8222-222222222222', display_name: 'Dominika', email: 'domi.mikloskova@gmail.com' };
+  // Audit A7: repo je verejné — demo režim používa anonymné identity.
+  const ivan = { id: '11111111-1111-4111-8111-111111111111', display_name: 'Používateľ A', email: 'user-a@example.com' };
+  const dominika = { id: '22222222-2222-4222-8222-222222222222', display_name: 'Používateľ B', email: 'user-b@example.com' };
   const user = { id: ivan.id, email: ivan.email };
-  const pair = { id: '33333333-3333-4333-8333-333333333333', name: 'Ivan a Dominika – ukážka' };
+  const pair = { id: '33333333-3333-4333-8333-333333333333', name: 'Ukážková dvojica' };
   await initTaskService({ userId: user.id, demoMode: true, pairId: pair.id });
   let tasks = await cachedTasks();
   if (!tasks.length) {
     const now = Date.now();
     tasks = [
-      { id: crypto.randomUUID(), pair_id: pair.id, created_by: ivan.id, assigned_to: dominika.id, title: 'Skúšobná úloha pre Dominiku', notes: 'Takto bude vyzerať úloha, ktorú jej zadáš.', due_at: new Date(now + 60 * 60_000).toISOString(), timezone: 'Europe/Bratislava', priority: 2, pre_reminder_minutes: 5, recurrence_rule: 'none', recurrence_mode: 'after', notify_creator_on_complete: true, reminder_interval_seconds: 60, max_reminders: 10, reminders_sent: 0, status: 'pending', snoozed_until: null, acknowledged_at: null, completed_at: null, deleted_at: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), version: 1, last_changed_by: ivan.id },
-      { id: crypto.randomUUID(), pair_id: pair.id, created_by: dominika.id, assigned_to: ivan.id, title: 'Kúpiť veci do domácnosti', notes: 'Dominika ti môže takto dopísať úlohu.', due_at: new Date(now + 3 * 60 * 60_000).toISOString(), timezone: 'Europe/Bratislava', priority: 1, pre_reminder_minutes: 0, recurrence_rule: 'none', recurrence_mode: 'after', notify_creator_on_complete: false, reminder_interval_seconds: 60, max_reminders: 10, reminders_sent: 0, status: 'pending', snoozed_until: null, acknowledged_at: null, completed_at: null, deleted_at: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), version: 1, last_changed_by: dominika.id },
+      { id: crypto.randomUUID(), pair_id: pair.id, created_by: ivan.id, assigned_to: dominika.id, title: 'Skúšobná úloha pre partnera', notes: 'Takto bude vyzerať úloha, ktorú partnerovi zadáš.', due_at: new Date(now + 60 * 60_000).toISOString(), timezone: 'Europe/Bratislava', priority: 2, pre_reminder_minutes: 5, recurrence_rule: 'none', recurrence_mode: 'after', notify_creator_on_complete: true, reminder_interval_seconds: 60, max_reminders: 10, reminders_sent: 0, status: 'pending', snoozed_until: null, acknowledged_at: null, completed_at: null, deleted_at: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), version: 1, last_changed_by: ivan.id },
+      { id: crypto.randomUUID(), pair_id: pair.id, created_by: dominika.id, assigned_to: ivan.id, title: 'Kúpiť veci do domácnosti', notes: 'Partner ti môže takto dopísať úlohu.', due_at: new Date(now + 3 * 60 * 60_000).toISOString(), timezone: 'Europe/Bratislava', priority: 1, pre_reminder_minutes: 0, recurrence_rule: 'none', recurrence_mode: 'after', notify_creator_on_complete: false, reminder_interval_seconds: 60, max_reminders: 10, reminders_sent: 0, status: 'pending', snoozed_until: null, acknowledged_at: null, completed_at: null, deleted_at: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), version: 1, last_changed_by: dominika.id },
     ];
     await cacheTasks(tasks);
   }
@@ -237,6 +238,25 @@ async function bootUser(user, generation) {
     }
 
     // === NAJLEPŠIA SNAHA: appka je už zobrazená; chyby tu NESMÚ odhlásiť ===
+    // Audit A4: overenie verzie backendu — nekompletne zmigrovaný Supabase sa
+    // inak prejavuje náhodnými RPC chybami. Nezhoda NEblokuje appku (offline
+    // režim musí fungovať), len zobrazí trvalé varovanie a diagnostiku.
+    try {
+      const REQUIRED_SCHEMA = 11;
+      const { data: caps, error: capsError } = await supabase.rpc('get_backend_capabilities');
+      const schema = capsError ? 0 : Number(caps?.schema_version || 0);
+      if (isCurrentTransition(generation, user.id)) {
+        setState({ backendSchema: schema });
+        if (schema < REQUIRED_SCHEMA) {
+          setState({ syncError: `Databáza je zastaraná (schéma ${schema || 'neznáma'}, appka potrebuje ${REQUIRED_SCHEMA}). Spusti chýbajúce migrácie — niektoré funkcie nebudú fungovať.` });
+          render();
+        }
+      }
+    } catch (error) {
+      console.warn('Backend capability check failed (non-fatal)', error?.message);
+    }
+    if (!isCurrentTransition(generation, user.id)) return;
+
     try {
       const notificationStatus = await withTimeout(
         initializeNotifications(({ taskId, action, kind }) => {
