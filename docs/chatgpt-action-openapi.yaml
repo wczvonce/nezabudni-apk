@@ -1,0 +1,255 @@
+openapi: 3.1.0
+info:
+  title: Nezabudni Action API
+  version: 1.0.0
+  description: >-
+    Súkromné API na načítanie kontextu dvojice a bezpečné vytvorenie úlohy
+    v aplikácii Nezabudni. API nevystavuje zoznam úloh ani administračné dáta.
+servers:
+  - url: https://ofwouqpqzcpjnigcgygz.supabase.co/functions/v1/chatgpt-api
+security:
+  - NezabudniActionKey: []
+paths:
+  /context:
+    get:
+      operationId: getNezabudniContext
+      summary: Načíta aktuálny čas, používateľa, partnera a predvolené hodnoty
+      description: >-
+        Zavolaj pred prvým vytvorením úlohy v konverzácii a vždy, keď treba
+        správne vyriešiť relatívny dátum alebo meno partnera. Nevykonáva žiadny zápis.
+      responses:
+        '200':
+          description: Kontext prihláseného konektora
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContextResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /reminders:
+    post:
+      operationId: createNezabudniReminder
+      summary: Vytvorí jednu úlohu v aplikácii Nezabudni
+      description: >-
+        Vykonaj až po tom, čo sú názov, termín, príjemca a voľba upozornenia
+        po splnení jednoznačné. Pri opakovaní HTTP požiadavky vždy znovu použi
+        rovnaký request_id; pri novej zamýšľanej úlohe vytvor nové UUID.
+      x-openai-isConsequential: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReminderRequest'
+            examples:
+              smetiPrePartnera:
+                summary: Úloha pre partnerku s upozornením autora po splnení
+                value:
+                  request_id: 4f994f18-1fd7-4c4d-9944-a4454e681a22
+                  title: Vysypať smeti
+                  notes: null
+                  due_at: '2026-07-22T22:00:00+02:00'
+                  timezone: Europe/Bratislava
+                  assignee: partner
+                  priority: 1
+                  pre_reminder_minutes: 0
+                  recurrence_rule: none
+                  recurrence_mode: after
+                  notify_creator_on_complete: true
+                  reminder_interval_seconds: 60
+                  max_reminders: 10
+      responses:
+        '200':
+          description: Úloha bola vytvorená alebo bol bezpečne vrátený výsledok rovnakého request_id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateReminderResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+components:
+  securitySchemes:
+    NezabudniActionKey:
+      type: apiKey
+      in: header
+      name: x-nezabudni-action-key
+      description: Revokovateľný náhodný token uložený iba v nastavení súkromného GPT.
+  schemas:
+    ContextResponse:
+      type: object
+      required: [ok, server_now, timezone, actor, partner, defaults]
+      properties:
+        ok:
+          type: boolean
+          const: true
+        server_now:
+          type: string
+          format: date-time
+          description: Autoritatívny aktuálny serverový čas.
+        timezone:
+          type: string
+          const: Europe/Bratislava
+        actor:
+          $ref: '#/components/schemas/Person'
+        partner:
+          $ref: '#/components/schemas/Person'
+        defaults:
+          type: object
+          additionalProperties: false
+          properties:
+            priority: { type: integer, minimum: 1, maximum: 3 }
+            pre_reminder_minutes: { type: integer, minimum: 0, maximum: 10080 }
+            recurrence_rule: { type: string, enum: [none, daily, weekly, monthly] }
+            recurrence_mode: { type: string, enum: [after, each] }
+            notify_creator_on_complete: { type: boolean }
+            reminder_interval_seconds: { type: integer, minimum: 60, maximum: 86400 }
+            max_reminders: { type: integer, minimum: 1, maximum: 50 }
+    Person:
+      type: object
+      required: [id, display_name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+    CreateReminderRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - request_id
+        - title
+        - due_at
+        - timezone
+        - assignee
+        - notify_creator_on_complete
+      properties:
+        request_id:
+          type: string
+          format: uuid
+          description: >-
+            Idempotency identifikátor jednej zamýšľanej úlohy. Pri retry musí zostať rovnaký;
+            pre inú úlohu musí byť nový.
+        title:
+          type: string
+          minLength: 1
+          maxLength: 180
+        notes:
+          type: [string, 'null']
+          maxLength: 10000
+        due_at:
+          type: string
+          format: date-time
+          description: Presný RFC3339 čas vrátane UTC offsetu pre Europe/Bratislava.
+        timezone:
+          type: string
+          const: Europe/Bratislava
+        assignee:
+          type: string
+          enum: [self, partner]
+          description: self je používateľ ChatGPT konektora; partner je osoba z getNezabudniContext.
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 3
+          default: 1
+        pre_reminder_minutes:
+          type: integer
+          minimum: 0
+          maximum: 10080
+          default: 0
+        recurrence_rule:
+          type: string
+          enum: [none, daily, weekly, monthly]
+          default: none
+        recurrence_mode:
+          type: string
+          enum: [after, each]
+          default: after
+        notify_creator_on_complete:
+          type: boolean
+          default: false
+          description: Keď je true a úloha je pre partnera, autor dostane upozornenie po splnení.
+        reminder_interval_seconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+          default: 60
+        max_reminders:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 10
+    CreateReminderResponse:
+      type: object
+      required: [ok, request_id, task, confirmation]
+      properties:
+        ok:
+          type: boolean
+          const: true
+        request_id:
+          type: string
+          format: uuid
+        task:
+          type: object
+          required: [id, title, due_at, timezone, assigned_to, created_by, notify_creator_on_complete, status]
+          properties:
+            id: { type: string, format: uuid }
+            title: { type: string }
+            due_at: { type: string, format: date-time }
+            timezone: { type: string }
+            assigned_to: { $ref: '#/components/schemas/Person' }
+            created_by: { $ref: '#/components/schemas/Person' }
+            notify_creator_on_complete: { type: boolean }
+            recurrence_rule: { type: string }
+            status: { type: string }
+        confirmation:
+          type: string
+    ErrorResponse:
+      type: object
+      required: [ok, error]
+      properties:
+        ok:
+          type: boolean
+          const: false
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: { type: object }
+  responses:
+    BadRequest:
+      description: Neplatné alebo nejednoznačne pripravené údaje
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: Chýbajúci, neplatný alebo zrušený konektorový token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Forbidden:
+      description: Konektor nemá povolenie na operáciu
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: Konflikt idempotencie alebo konfigurácie dvojice
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    RateLimited:
+      description: Ochranný limit nových úloh bol prekročený
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
