@@ -1,67 +1,112 @@
-# ChatGPT Action pre Nezabudni – nasadenie a audit
+# ChatGPT Action pre Nezabudni – bezpečné nasadenie a test
 
-Táto integrácia je **voliteľná a izolovaná**. Nemení existujúci webový ani mobilný tok vytvárania úloh, offline outbox, Realtime ani OneSignal worker. Pridáva iba nový, úzko obmedzený vstup pre súkromný GPT.
+Táto integrácia je **voliteľná a izolovaná**. Nemení existujúci mobilný ani webový tok vytvárania úloh, offline outbox, Realtime alebo OneSignal worker. Pridáva iba nový, úzko obmedzený vstup pre súkromný GPT.
 
-## Čo bude fungovať
-
-Po nasadení môže používateľ do svojho súkromného GPT nadiktovať do textového poľa napríklad:
+Po dokončení bude fungovať napríklad veta:
 
 > Zapíš úlohu do Nezabudni pre Dominiku, aby vysypala smeti dnes o 22:00, a upozorni ma, keď bude splnená.
 
-GPT načíta kontext dvojice, pripraví presný dátum a čas, vypýta si potvrdenie a vytvorí úlohu. Pole `notify_creator_on_complete` sa uloží ako `true`, takže existujúca logika Nezabudni upozorní autora po splnení úlohy partnerom.
+GPT najprv ukáže presné zhrnutie a počká na výslovné potvrdenie. Až potom vytvorí úlohu. Pole `notify_creator_on_complete` sa uloží ako `true`, takže po Dominikinom splnení existujúca logika Nezabudni vytvorí upozornenie pre Ivana.
 
-## Prečo je prvá verzia autentifikovaná konektorovým tokenom
-
-GPT Actions oficiálne podporujú vlastný API kľúč v hlavičke. Supabase OAuth Server je stále beta a vyžaduje OAuth 2.1 Authorization Code Flow s PKCE. Kým nie je prakticky potvrdená kompatibilita konkrétneho GPT Action OAuth klienta s povinným PKCE tokom, je pre túto súkromnú dvojicu spoľahlivejší revokovateľný 256-bitový konektorový token.
-
-Token:
-
-- je náhodný a viazaný na jedného používateľa Nezabudni,
-- v databáze sa ukladá iba jeho SHA-256 hash,
-- má iba operáciu `create_task`,
-- dá sa okamžite deaktivovať,
-- nikdy sa neukladá do aplikácie, GitHubu ani frontendového `.env`,
-- v ChatGPT sa uloží ako tajná hodnota Action autentifikácie.
-
-Architektúra je pripravená tak, aby sa autentifikácia neskôr dala vymeniť za OAuth bez zmeny existujúceho systému úloh a notifikácií.
-
-## Architektúra
+## Bezpečnostný model
 
 ```text
 Súkromný GPT + Action
         │ x-nezabudni-action-key
         ▼
 Supabase Edge Function chatgpt-api
-        │ overenie SHA-256 tokenu a mapovanie na actor_id
+        │ SHA-256 overenie tokenu
         ▼
 service-role RPC api_create_task_from_integration
-        │ kontrola dvojice, idempotencie, limitu a vstupov
+        │ kontrola aktéra, dvojice, príjemcu, limitov a idempotencie
         ▼
 tasks + task_events + notification_jobs
         ▼
-existujúci Supabase Realtime + OneSignal push-worker
+existujúci Realtime + OneSignal push-worker
         ▼
 Nezabudni v mobile
 ```
 
-ChatGPT nemá prístup k service-role kľúču. Ten zostáva iba v serverovom prostredí Supabase Edge Functions.
+ChatGPT nikdy nedostane Supabase `service_role` kľúč. Konektorový token:
 
-# Bezpečné poradie nasadenia
+- má 256 bitov náhodnosti,
+- je viazaný na konkrétne UUID používateľa,
+- v databáze sa uchováva iba jeho SHA-256 hash,
+- povoľuje iba operáciu `create_task`,
+- štandardne platí 180 dní,
+- dá sa okamžite deaktivovať,
+- má limit 5 nových úloh za minútu a 100 za 24 hodín.
 
-## 1. Najprv záloha a audit
+## Ako sa rieši čas
 
-Pred zásahom do testovacieho Supabase projektu:
+GPT neposiela UTC offset. Posiela iba:
 
-1. exportuj databázovú schému alebo vytvor zálohu,
-2. over, že sú nasadené migrácie `001`, `004` až `011`,
-3. spusti v repozitári:
+```json
+{
+  "local_date": "YYYY-MM-DD",
+  "local_time": "HH:MM",
+  "timezone": "Europe/Bratislava"
+}
+```
+
+Správny letný alebo zimný čas vypočíta server podľa IANA časovej zóny. Tým sa odstráni riziko posunu o hodinu.
+
+- Ak čas pri jarnej zmene hodiniek neexistuje, API vráti `NONEXISTENT_LOCAL_TIME`.
+- Ak čas pri jesennej zmene nastane dvakrát, API vráti `AMBIGUOUS_LOCAL_TIME` a GPT sa opýta na skorší alebo neskorší výskyt.
+
+# Časť A – kontrola kódu pred nasadením
+
+## 1. Nezlučuj draft PR naslepo
+
+Najprv musí prejsť GitHub CI:
+
+- všetky pôvodné testy aplikácie,
+- SQL migrácie,
+- serverové testy časového pásma,
+- end-to-end SQL test upozornenia autora po splnení,
+- `deno check` novej Edge Function,
+- Vite build,
+- Android debug build,
+- dependency security audit.
+
+## 2. Lokálny audit
+
+Potrebné nástroje:
+
+- Node.js 22,
+- npm,
+- Deno 2.8.1,
+- Supabase CLI pre neskoršie nasadenie.
+
+Spusti:
 
 ```bash
 npm ci
 npm run audit
+npm audit --audit-level=high
 ```
 
-## 2. Spusti migráciu 012
+`npm run audit` teraz zahŕňa aj:
+
+```bash
+deno check supabase/functions/chatgpt-api/index.ts
+node tests/chatgpt-timezone.test.mjs
+node tests/chatgpt-integration-sql.test.mjs
+```
+
+Nezlučuj ani nenasadzuj, ak niektorý príkaz skončí chybou.
+
+# Časť B – nasadenie do Supabase
+
+## 3. Najprv záloha
+
+Pred migráciou:
+
+1. vytvor zálohu alebo export databázovej schémy,
+2. over, že sú nasadené migrácie `001`, `004` až `011`,
+3. over, že existujúce Nezabudni normálne vytvára, synchronizuje a dokončuje úlohy.
+
+## 4. Spusti migráciu 012
 
 V Supabase SQL Editore spusti celý súbor:
 
@@ -69,15 +114,40 @@ V Supabase SQL Editore spusti celý súbor:
 supabase/migrations/012_chatgpt_action_integration.sql
 ```
 
-Migrácia iba pridáva:
+Migrácia pridáva iba:
 
 - `integration_clients`,
 - `integration_requests`,
-- `api_create_task_from_integration`.
+- `api_create_task_from_integration`,
+- capability handshake `schema_version: 12`.
 
-Nemení existujúcu `api_create_task`, tabuľku `tasks`, mobilnú aplikáciu ani push worker.
+Nemení tabuľku `tasks`, existujúcu `api_create_task`, mobilný klient ani `push-worker`.
 
-## 3. Vygeneruj jednorazový token
+Po migrácii over:
+
+```sql
+select public.get_backend_capabilities();
+```
+
+Očakávaný výsledok obsahuje:
+
+```json
+{"schema_version": 12}
+```
+
+## 5. Zisti presné UUID Ivana
+
+V SQL Editore spusti:
+
+```sql
+select id, display_name, email
+from public.profiles
+order by display_name;
+```
+
+Skopíruj UUID riadku Ivana. Na registráciu konektora nepoužívaj e-mail ako identifikátor.
+
+## 6. Vygeneruj jednorazový token
 
 Lokálne v repozitári spusti:
 
@@ -87,52 +157,50 @@ npm run chatgpt:token
 
 Skript vypíše:
 
-- tajný token – vloží sa neskôr iba do nastavenia GPT Action,
+- tajný token – vloží sa iba do nastavenia GPT Action,
 - SHA-256 hash – uloží sa do Supabase.
 
-Tajný token si dočasne odlož do správcu hesiel. Po zatvorení terminálu ho zo Supabase nezískaš, pretože databáza uchováva iba hash.
+Tajný token odlož do správcu hesiel. Necommituj ho, neposielaj e-mailom a nevkladaj do frontendového `.env`.
 
-## 4. Zaregistruj konektor pre používateľa
+## 7. Zaregistruj konektor
 
-V SQL Editore nahraď zástupné hodnoty a spusti:
-
-```sql
-insert into public.integration_clients(name, actor_id, token_hash, allowed_operations)
-select
-  'ChatGPT – súkromný konektor',
-  id,
-  '<SHA256_HASH_Z_PREDCHADZAJUCEHO_KROKU>',
-  array['create_task']::text[]
-from public.profiles
-where email = '<EMAIL_POUZIVATELA_NEZABUDNI>'
-on conflict (token_hash) do update
-set active = true,
-    actor_id = excluded.actor_id,
-    name = excluded.name,
-    allowed_operations = excluded.allowed_operations;
-```
-
-Potom over presne jeden aktívny riadok:
+Nahraď dve zástupné hodnoty:
 
 ```sql
-select id, name, actor_id, active, allowed_operations, created_at
-from public.integration_clients;
+insert into public.integration_clients(
+  name,
+  actor_id,
+  token_hash,
+  allowed_operations,
+  expires_at,
+  max_per_minute,
+  max_per_day
+) values (
+  'ChatGPT – Ivan',
+  '<IVAN_PROFILE_UUID>'::uuid,
+  '<SHA256_HASH_TOKENU>',
+  array['create_task']::text[],
+  now() + interval '180 days',
+  5,
+  100
+)
+returning id, name, actor_id, active, expires_at, max_per_minute, max_per_day;
 ```
 
-Token hash ani výsledok tohto dotazu nevkladaj do verejnej dokumentácie.
+Bezpečne si odlož vrátené `id` konektora. Bude sa používať na deaktiváciu a rotáciu.
 
-## 5. Nasaď Edge Function
-
-`supabase/config.toml` obsahuje pre `chatgpt-api` nastavenie `verify_jwt = false`, pretože funkcia používa vlastný tajný token a nie používateľský Supabase JWT.
+## 8. Nasaď Edge Function
 
 ```bash
 supabase link --project-ref ofwouqpqzcpjnigcgygz
 supabase functions deploy chatgpt-api --no-verify-jwt
 ```
 
-Funkcia používa serverové premenné `SUPABASE_URL` a `SUPABASE_SERVICE_ROLE_KEY`, ktoré sú v hostovanom Supabase prostredí dostupné funkciám. Žiadny nový service-role kľúč nevkladaj do repozitára.
+Hostované Supabase prostredie poskytne funkcii `SUPABASE_URL` a `SUPABASE_SERVICE_ROLE_KEY`. Service-role kľúč nevkladaj do GitHubu ani do ChatGPT.
 
-## 6. Otestuj kontext bez zápisu
+# Časť C – technický test bez ChatGPT
+
+## 9. Test kontextu bez zápisu
 
 ```bash
 curl \
@@ -140,11 +208,18 @@ curl \
   'https://ofwouqpqzcpjnigcgygz.supabase.co/functions/v1/chatgpt-api/context'
 ```
 
-Očakávaj `ok: true`, aktuálny serverový čas a správne mená používateľa a partnera.
+Očakávaj:
 
-## 7. Otestuj jednu skúšobnú úlohu
+- `ok: true`,
+- správne meno Ivana,
+- správne meno Dominiky,
+- `timezone: Europe/Bratislava`,
+- správny miestny dátum a čas,
+- žiadne e-mailové adresy ani interné UUID osôb.
 
-Použi nové UUID a termín v budúcnosti:
+## 10. Test jednej úlohy
+
+Vyber dátum a čas aspoň 10 minút v budúcnosti a vytvor nové UUID:
 
 ```bash
 curl -X POST \
@@ -152,10 +227,11 @@ curl -X POST \
   -H 'x-nezabudni-action-key: <TAJNY_TOKEN>' \
   'https://ofwouqpqzcpjnigcgygz.supabase.co/functions/v1/chatgpt-api/reminders' \
   --data '{
-    "request_id": "4f994f18-1fd7-4c4d-9944-a4454e681a22",
+    "request_id": "<NOVE_UUID>",
     "title": "Vysypať smeti",
     "notes": null,
-    "due_at": "2026-07-22T22:00:00+02:00",
+    "local_date": "<BUDUCI_DATUM_YYYY-MM-DD>",
+    "local_time": "<BUDUCI_CAS_HH:MM>",
     "timezone": "Europe/Bratislava",
     "assignee": "partner",
     "priority": 1,
@@ -168,42 +244,66 @@ curl -X POST \
   }'
 ```
 
-Pri reálnom teste zmeň dátum na budúci termín. Over:
+Očakávaj:
 
-1. odpoveď obsahuje `ok: true` a ID úlohy,
-2. úloha sa zobrazí partnerovi,
-3. partner dostane existujúcu notifikáciu o priradenej úlohe,
-4. pri termíne príde existujúce upozornenie,
-5. po označení úlohy ako hotovej dostane autor upozornenie.
+- HTTP 200,
+- `ok: true`,
+- ID úlohy,
+- správny miestny dátum a čas,
+- správny automaticky vypočítaný `utc_offset`,
+- `assigned_to.display_name` je Dominika,
+- `notify_creator_on_complete` je `true`.
 
-### Povinný test idempotencie
+## 11. Povinný test idempotencie
 
-Pošli úplne rovnaký request druhýkrát s rovnakým `request_id`. Odpoveď musí vrátiť rovnaké ID úlohy a v databáze nesmie pribudnúť duplikát.
+Pošli úplne rovnakú požiadavku druhýkrát s rovnakým `request_id`.
 
-Potom zmeň názov, ale ponechaj rovnaký `request_id`. API musí vrátiť HTTP 409 s kódom `IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD`.
+Očakávaj:
 
-## 8. Vytvor súkromný GPT
+- rovnaké ID úlohy,
+- v Nezabudni nevznikne druhá úloha.
 
-V ChatGPT otvor editor vlastného GPT a nechaj GPT súkromný.
+Potom zmeň názov, ale ponechaj rovnaký `request_id`.
 
-### Action schéma
+Očakávaj HTTP 409 a kód:
 
-Importuj obsah:
+```text
+IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD
+```
+
+## 12. Povinný test upozornenia po splnení
+
+1. Ivan vytvorí skúšobnú úlohu pre Dominiku s `notify_creator_on_complete: true`.
+2. Dominika otvorí Nezabudni a označí ju ako hotovú.
+3. Over, že Ivan dostane presne jedno upozornenie o splnení.
+4. Over, že opakované stlačenie alebo synchronizačný retry nevytvorí druhé upozornenie.
+
+Automatický SQL test tejto funkcie je v:
+
+```text
+tests/chatgpt-integration-sql.test.mjs
+```
+
+# Časť D – vytvorenie súkromného GPT
+
+## 13. Action schéma
+
+V editore vlastného GPT importuj:
 
 ```text
 docs/chatgpt-action-openapi.yaml
 ```
 
-### Autentifikácia
-
-Nastav:
+Nastav autentifikáciu:
 
 - typ: **API Key**,
 - spôsob: **Custom header**,
 - názov hlavičky: `x-nezabudni-action-key`,
-- hodnota: tajný token z kroku 3.
+- hodnota: tajný token.
 
-### Inštrukcie GPT
+GPT nechaj súkromný.
+
+## 14. Inštrukcie GPT
 
 Do poľa Instructions vlož obsah:
 
@@ -211,49 +311,44 @@ Do poľa Instructions vlož obsah:
 docs/CHATGPT-GPT-INSTRUCTIONS-SK.md
 ```
 
-V Preview najprv otestuj neškodné načítanie kontextu a až potom skúšobný zápis.
+Tieto inštrukcie vyžadujú výslovné potvrdenie pred každým zápisom.
 
-## 9. Používanie
+## 15. Reálny používateľský test
 
-V bežnom textovom chate vlastného GPT stlač mikrofón pri textovom poli, nadiktuj vetu a odošli prepísaný text. Napríklad:
+Do textového poľa vlastného GPT nadiktuj:
 
 > Zapíš úlohu do Nezabudni pre Dominiku, aby vysypala smeti dnes o 22:00, a upozorni ma, keď bude úloha splnená.
 
-GPT má najprv ukázať presné zhrnutie. Po potvrdení zavolá Action. Úlohu smie označiť ako zapísanú až po úspešnej odpovedi servera.
+Správny priebeh:
 
-Vlastné GPT Actions nemusia byť dostupné priamo počas samostatného živého Voice režimu. Spoľahlivý tok je diktovanie do textového poľa vlastného GPT.
+1. GPT načíta kontext.
+2. GPT presne zopakuje názov, Dominiku, dátum, čas a upozornenie po splnení.
+3. GPT sa opýta, či má úlohu zapísať.
+4. Pred tvojím „áno“ sa v aplikácii nič nevytvorí.
+5. Po „áno“ Action vráti `ok: true` a úloha sa objaví v Nezabudni.
+6. Dominika dostane upozornenie podľa existujúceho systému.
+7. Po splnení dostane Ivan upozornenie.
 
-# Ochrany proti poškodeniu existujúcej aplikácie
+Vlastné GPT Actions nie sú dostupné počas samostatnej živej Voice konverzácie. Použi mikrofón pri bežnom textovom poli, skontroluj prepis a správu odošli.
 
-- Nová Edge Function má vlastný názov a vlastnú cestu.
-- Existujúci `push-worker` sa nemení.
-- Existujúce klientské RPC sa nemenia.
-- ChatGPT nemá priame práva na tabuľku `tasks`.
-- Token je viazaný na konkrétne `actor_id`.
-- Príjemca musí byť členom rovnakej dvojice.
-- Jedna dvojica musí mať presne jedného partnera.
-- Rovnaký `request_id` je idempotentný.
-- Rovnaký `request_id` s iným obsahom je odmietnutý.
-- Limit je 20 nových úloh za minútu na konektor.
-- Termín nemôže byť viac než 5 minút v minulosti ani viac než 10 rokov v budúcnosti.
-- Vstupy majú rovnaké hranice ako existujúca aplikácia.
-- Udalosť sa zapisuje do `task_events` so zdrojom `chatgpt_action`.
-- Tajný token sa v databáze uchováva iba ako SHA-256 hash.
+# Okamžité vypnutie
 
-# Okamžité vypnutie a rollback
-
-Najrýchlejšie vypnutie bez zásahu do aplikácie:
+Použi presné UUID konektora:
 
 ```sql
 update public.integration_clients
 set active = false
-where name = 'ChatGPT – súkromný konektor';
+where id = '<INTEGRATION_CLIENT_ID>'::uuid;
 ```
 
 Tým sa ďalšie požiadavky okamžite odmietnu. Existujúce úlohy a mobilná aplikácia zostanú nedotknuté.
 
-Edge Function môžeš následne odstrániť alebo nechať nasadenú s deaktivovaným klientom. Migráciu netreba vracať späť, pretože jej objekty sú izolované a bez aktívneho klienta nepoužiteľné.
+# Rotácia po expirácii alebo podozrení na únik
 
-# Budúce OAuth rozšírenie
+1. Vygeneruj nový token.
+2. Vytvor nový riadok `integration_clients` s novým hashom.
+3. V ChatGPT Action nahraď tajnú hodnotu novým tokenom.
+4. Otestuj `/context` a jednu skúšobnú úlohu.
+5. Starý konektor deaktivuj podľa jeho UUID.
 
-Keď bude prakticky potvrdená kompatibilita GPT Actions s povinným PKCE tokom Supabase OAuth 2.1 Servera, možno pridať OAuth vrstvu. Business logika úloh, idempotencia, Realtime aj notifikácie sa pritom nemusia meniť.
+Nikdy neprepisuj starý token skôr, než nový konektor úspešne prejde testom.
