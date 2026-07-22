@@ -23,7 +23,15 @@ jobs:
           deno-version: '2.8.1'
       - name: Clean install
         run: npm ci
-      - name: Audit (unit + SQL + Edge Functions + android package + validate + vite build)
+      - name: ChatGPT timezone behavior
+        run: node tests/chatgpt-timezone.test.mjs
+      - name: ChatGPT static security contract
+        run: node tests/chatgpt-integration-static.test.mjs
+      - name: ChatGPT SQL behavior and completion notification
+        run: node tests/chatgpt-integration-sql.test.mjs
+      - name: ChatGPT Edge Function Deno type-check
+        run: deno check supabase/functions/chatgpt-api/index.ts
+      - name: Full project audit
         run: npm run audit
       - name: Dependency security audit
         run: npm audit --audit-level=high
