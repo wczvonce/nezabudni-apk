@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   web:
-    name: Tests, SQL, Edge worker, build, audit
+    name: Tests, SQL, Edge Functions, build, audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,9 +18,12 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: '2.8.1'
       - name: Clean install
         run: npm ci
-      - name: Audit (unit + SQL + worker + android package + validate + vite build)
+      - name: Audit (unit + SQL + Edge Functions + android package + validate + vite build)
         run: npm run audit
       - name: Dependency security audit
         run: npm audit --audit-level=high
