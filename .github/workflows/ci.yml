@@ -21,6 +21,14 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: '2.8.1'
+      - name: Generate patched lockfile
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Upload patched lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: patched-package-lock
+          path: package-lock.json
+          if-no-files-found: error
       - name: Clean install
         run: npm ci
       - name: ChatGPT Edge Function Deno type-check
@@ -34,19 +42,7 @@ jobs:
       - name: Full project audit
         run: npm run audit
       - name: Dependency security audit
-        id: dependency_audit
-        continue-on-error: true
-        run: npm run audit:dependencies > dependency-audit.log 2>&1
-      - name: Upload dependency audit diagnostics
-        if: steps.dependency_audit.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: dependency-audit-log
-          path: dependency-audit.log
-          if-no-files-found: error
-      - name: Enforce dependency audit result
-        if: steps.dependency_audit.outcome == 'failure'
-        run: exit 1
+        run: npm run audit:dependencies
 
   android:
     name: Android debug build
@@ -68,6 +64,8 @@ jobs:
           # emulátora, ktorého download na runneroch opakovane padá na
           # „Error on ZipFile unknown archive" (flaky CI 2026-07-08 a 07-09).
           packages: 'platform-tools'
+      - name: Generate patched lockfile
+        run: npm install --package-lock-only --ignore-scripts
       - name: Clean install
         run: npm ci
       - name: Validate Android package
