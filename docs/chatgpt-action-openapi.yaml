@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Nezabudni Action API
-  version: 1.0.0
+  version: 1.1.0
   description: >-
     Súkromné API na načítanie kontextu dvojice a bezpečné vytvorenie úlohy
     v aplikácii Nezabudni. API nevystavuje zoznam úloh ani administračné dáta.
@@ -13,13 +13,13 @@ paths:
   /context:
     get:
       operationId: getNezabudniContext
-      summary: Načíta aktuálny čas, používateľa, partnera a predvolené hodnoty
+      summary: Načíta miestny čas, používateľa, partnera a predvolené hodnoty
       description: >-
         Zavolaj pred prvým vytvorením úlohy v konverzácii a vždy, keď treba
-        správne vyriešiť relatívny dátum alebo meno partnera. Nevykonáva žiadny zápis.
+        správne vyriešiť relatívny dátum alebo meno partnera. Nevykonáva zápis.
       responses:
         '200':
-          description: Kontext prihláseného konektora
+          description: Kontext pripojeného používateľa
           content:
             application/json:
               schema:
@@ -31,9 +31,9 @@ paths:
       operationId: createNezabudniReminder
       summary: Vytvorí jednu úlohu v aplikácii Nezabudni
       description: >-
-        Vykonaj až po tom, čo sú názov, termín, príjemca a voľba upozornenia
-        po splnení jednoznačné. Pri opakovaní HTTP požiadavky vždy znovu použi
-        rovnaký request_id; pri novej zamýšľanej úlohe vytvor nové UUID.
+        Vykonaj iba po výslovnom potvrdení používateľa. Posielaj miestny dátum
+        a miestny čas; správny UTC offset a zmenu letného alebo zimného času
+        vypočíta server. Pri retry vždy znovu použi rovnaký request_id a rovnaký obsah.
       x-openai-isConsequential: true
       requestBody:
         required: true
@@ -41,23 +41,6 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateReminderRequest'
-            examples:
-              smetiPrePartnera:
-                summary: Úloha pre partnerku s upozornením autora po splnení
-                value:
-                  request_id: 4f994f18-1fd7-4c4d-9944-a4454e681a22
-                  title: Vysypať smeti
-                  notes: null
-                  due_at: '2026-07-22T22:00:00+02:00'
-                  timezone: Europe/Bratislava
-                  assignee: partner
-                  priority: 1
-                  pre_reminder_minutes: 0
-                  recurrence_rule: none
-                  recurrence_mode: after
-                  notify_creator_on_complete: true
-                  reminder_interval_seconds: 60
-                  max_reminders: 10
       responses:
         '200':
           description: Úloha bola vytvorená alebo bol bezpečne vrátený výsledok rovnakého request_id
@@ -83,9 +66,44 @@ components:
       name: x-nezabudni-action-key
       description: Revokovateľný náhodný token uložený iba v nastavení súkromného GPT.
   schemas:
+    Person:
+      type: object
+      additionalProperties: false
+      required: [display_name]
+      properties:
+        display_name:
+          type: string
+    Defaults:
+      type: object
+      additionalProperties: false
+      required:
+        - priority
+        - pre_reminder_minutes
+        - recurrence_rule
+        - recurrence_mode
+        - notify_creator_on_complete
+        - reminder_interval_seconds
+        - max_reminders
+      properties:
+        priority: { type: integer, minimum: 1, maximum: 3 }
+        pre_reminder_minutes: { type: integer, minimum: 0, maximum: 10080 }
+        recurrence_rule: { type: string, enum: [none, daily, weekly, monthly] }
+        recurrence_mode: { type: string, enum: [after, each] }
+        notify_creator_on_complete: { type: boolean }
+        reminder_interval_seconds: { type: integer, minimum: 60, maximum: 86400 }
+        max_reminders: { type: integer, minimum: 1, maximum: 50 }
     ContextResponse:
       type: object
-      required: [ok, server_now, timezone, actor, partner, defaults]
+      additionalProperties: false
+      required:
+        - ok
+        - server_now
+        - server_local_date
+        - server_local_time
+        - timezone
+        - actor
+        - partner
+        - defaults
       properties:
         ok:
           type: boolean
@@ -93,7 +111,15 @@ components:
         server_now:
           type: string
           format: date-time
-          description: Autoritatívny aktuálny serverový čas.
+          description: Autoritatívny aktuálny UTC čas servera.
+        server_local_date:
+          type: string
+          format: date
+          description: Aktuálny dátum v Europe/Bratislava.
+        server_local_time:
+          type: string
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+          description: Aktuálny miestny čas v Europe/Bratislava.
         timezone:
           type: string
           const: Europe/Bratislava
@@ -102,32 +128,15 @@ components:
         partner:
           $ref: '#/components/schemas/Person'
         defaults:
-          type: object
-          additionalProperties: false
-          properties:
-            priority: { type: integer, minimum: 1, maximum: 3 }
-            pre_reminder_minutes: { type: integer, minimum: 0, maximum: 10080 }
-            recurrence_rule: { type: string, enum: [none, daily, weekly, monthly] }
-            recurrence_mode: { type: string, enum: [after, each] }
-            notify_creator_on_complete: { type: boolean }
-            reminder_interval_seconds: { type: integer, minimum: 60, maximum: 86400 }
-            max_reminders: { type: integer, minimum: 1, maximum: 50 }
-    Person:
-      type: object
-      required: [id, display_name]
-      properties:
-        id:
-          type: string
-          format: uuid
-        display_name:
-          type: string
+          $ref: '#/components/schemas/Defaults'
     CreateReminderRequest:
       type: object
       additionalProperties: false
       required:
         - request_id
         - title
-        - due_at
+        - local_date
+        - local_time
         - timezone
         - assignee
         - notify_creator_on_complete
@@ -136,8 +145,8 @@ components:
           type: string
           format: uuid
           description: >-
-            Idempotency identifikátor jednej zamýšľanej úlohy. Pri retry musí zostať rovnaký;
-            pre inú úlohu musí byť nový.
+            Idempotency identifikátor jednej zamýšľanej úlohy. Pri retry musí zostať
+            rovnaký; pre inú úlohu musí byť nový.
         title:
           type: string
           minLength: 1
@@ -145,17 +154,27 @@ components:
         notes:
           type: [string, 'null']
           maxLength: 10000
-        due_at:
+        local_date:
           type: string
-          format: date-time
-          description: Presný RFC3339 čas vrátane UTC offsetu pre Europe/Bratislava.
+          format: date
+          description: Miestny kalendárny dátum v Europe/Bratislava.
+        local_time:
+          type: string
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+          description: Miestny čas HH:MM. UTC offset nevypočítava GPT, ale server.
         timezone:
           type: string
           const: Europe/Bratislava
+        ambiguous_time_choice:
+          type: string
+          enum: [earlier, later]
+          description: >-
+            Použi iba po chybe AMBIGUOUS_LOCAL_TIME a po voľbe používateľa:
+            earlier je prvý výskyt, later druhý výskyt dvojitého času.
         assignee:
           type: string
           enum: [self, partner]
-          description: self je používateľ ChatGPT konektora; partner je osoba z getNezabudniContext.
+          description: self je používateľ konektora; partner je osoba z getNezabudniContext.
         priority:
           type: integer
           minimum: 1
@@ -190,6 +209,7 @@ components:
           default: 10
     CreateReminderResponse:
       type: object
+      additionalProperties: false
       required: [ok, request_id, task, confirmation]
       properties:
         ok:
@@ -200,10 +220,25 @@ components:
           format: uuid
         task:
           type: object
-          required: [id, title, due_at, timezone, assigned_to, created_by, notify_creator_on_complete, status]
+          additionalProperties: false
+          required:
+            - id
+            - title
+            - local_date
+            - local_time
+            - utc_offset
+            - due_at
+            - timezone
+            - assigned_to
+            - created_by
+            - notify_creator_on_complete
+            - status
           properties:
             id: { type: string, format: uuid }
             title: { type: string }
+            local_date: { type: string, format: date }
+            local_time: { type: string }
+            utc_offset: { type: string }
             due_at: { type: string, format: date-time }
             timezone: { type: string }
             assigned_to: { $ref: '#/components/schemas/Person' }
@@ -215,6 +250,7 @@ components:
           type: string
     ErrorResponse:
       type: object
+      additionalProperties: false
       required: [ok, error]
       properties:
         ok:
@@ -229,12 +265,12 @@ components:
             details: { type: object }
   responses:
     BadRequest:
-      description: Neplatné alebo nejednoznačne pripravené údaje
+      description: Neplatné údaje alebo miestny čas, ktorý pri zmene hodiniek neexistuje
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
     Unauthorized:
-      description: Chýbajúci, neplatný alebo zrušený konektorový token
+      description: Chýbajúci, neplatný, zrušený alebo expirovaný konektorový token
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -244,12 +280,12 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
     Conflict:
-      description: Konflikt idempotencie alebo konfigurácie dvojice
+      description: Konflikt idempotencie, konfigurácie dvojice alebo dvojznačný jesenný miestny čas
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
     RateLimited:
-      description: Ochranný limit nových úloh bol prekročený
+      description: Minútový alebo denný ochranný limit nových úloh bol prekročený
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
