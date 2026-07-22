@@ -21,6 +21,8 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: '2.8.1'
+      - name: ChatGPT Edge Function Deno type-check
+        run: deno check supabase/functions/chatgpt-api/index.ts
       - name: Clean install
         run: npm ci
       - name: ChatGPT timezone behavior
@@ -29,8 +31,6 @@ jobs:
         run: node tests/chatgpt-integration-static.test.mjs
       - name: ChatGPT SQL behavior and completion notification
         run: node tests/chatgpt-integration-sql.test.mjs
-      - name: ChatGPT Edge Function Deno type-check
-        run: deno check supabase/functions/chatgpt-api/index.ts
       - name: Full project audit
         run: npm run audit
       - name: Dependency security audit
