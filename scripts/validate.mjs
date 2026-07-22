@@ -5,12 +5,13 @@ const required = [
   'capacitor.config.ts', 'src/main.js', 'src/services/task-service.js',
   'supabase/migrations/001_schema.sql', 'supabase/migrations/004_deep_audit_fixes.sql', 'supabase/functions/push-worker/index.ts',
   'supabase/migrations/012_chatgpt_action_integration.sql', 'supabase/functions/chatgpt-api/index.ts',
+  'supabase/functions/chatgpt-api/timezone.js',
   'docs/chatgpt-action-openapi.yaml', 'docs/CHATGPT-ACTION-SETUP-SK.md', 'docs/CHATGPT-GPT-INSTRUCTIONS-SK.md',
   'scripts/create-chatgpt-token.mjs',
   'android/app/build.gradle', 'ios/App/App.xcodeproj/project.pbxproj', 'ios/App/App/App.entitlements',
   'public/push/onesignal/OneSignalSDKWorker.js',
   'tests/auth-deadlock.test.mjs', 'tests/account-isolation.test.mjs', 'tests/sql-behavior.test.mjs', 'tests/ui-alarm.test.mjs', 'tests/worker-static.test.mjs',
-  'tests/chatgpt-integration-static.test.mjs', 'tests/chatgpt-integration-sql.test.mjs',
+  'tests/chatgpt-timezone.test.mjs', 'tests/chatgpt-integration-static.test.mjs', 'tests/chatgpt-integration-sql.test.mjs',
 ];
 for (const path of required) await readFile(path);
 
@@ -32,6 +33,7 @@ async function walk(dir) {
   }
   return result;
 }
+
 for (const path of await walk('.')) {
   if (!/\.(js|mjs|ts|sql|toml|md|html|json|ya?ml|xml|gradle)$/.test(path)) continue;
   const text = await readFile(path, 'utf8').catch(() => '');
