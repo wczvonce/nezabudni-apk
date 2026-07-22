@@ -274,5 +274,7 @@ as $$
   select jsonb_build_object('schema_version', 12);
 $$;
 
-revoke all on function public.get_backend_capabilities() from public;
+-- Staršie manuálne nasadenie môže mať na capability handshake explicitný
+-- grant pre anon; samotné REVOKE FROM public taký grant neodstráni.
+revoke all on function public.get_backend_capabilities() from public, anon;
 grant execute on function public.get_backend_capabilities() to authenticated;

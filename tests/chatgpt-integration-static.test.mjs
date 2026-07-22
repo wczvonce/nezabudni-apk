@@ -56,6 +56,11 @@ assert.match(migration, /'task_assigned'/, 'Partner musí dostať existujúcu no
 assert.match(migration, /p_notify_creator_on_complete/, 'RPC musí zachovať checkbox upozornenia autora');
 assert.match(migration, /'source', 'chatgpt_action'/, 'Audit event musí označiť integračný zdroj');
 assert.match(migration, /schema_version', 12/, 'Migrácia 012 musí zvýšiť capability handshake');
+assert.match(
+  migration,
+  /revoke all on function public\.get_backend_capabilities\(\) from public,\s*anon/,
+  'Capability handshake nesmie zostať vykonateľný cez explicitný anon grant',
+);
 assert.doesNotMatch(migration, /alter table public\.tasks/, 'Migrácia nesmie meniť existujúcu tabuľku tasks');
 assert.doesNotMatch(migration, /create or replace function public\.api_create_task\s*\(/, 'Migrácia nesmie meniť existujúce klientské api_create_task');
 
