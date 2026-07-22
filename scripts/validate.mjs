@@ -7,7 +7,7 @@ const required = [
   'supabase/migrations/012_chatgpt_action_integration.sql', 'supabase/functions/chatgpt-api/index.ts',
   'supabase/functions/chatgpt-api/timezone.js',
   'docs/chatgpt-action-openapi.yaml', 'docs/CHATGPT-ACTION-SETUP-SK.md', 'docs/CHATGPT-GPT-INSTRUCTIONS-SK.md',
-  'scripts/create-chatgpt-token.mjs',
+  'scripts/create-chatgpt-token.mjs', 'scripts/dependency-audit.mjs',
   'android/app/build.gradle', 'ios/App/App.xcodeproj/project.pbxproj', 'ios/App/App/App.entitlements',
   'public/push/onesignal/OneSignalSDKWorker.js',
   'tests/auth-deadlock.test.mjs', 'tests/account-isolation.test.mjs', 'tests/sql-behavior.test.mjs', 'tests/ui-alarm.test.mjs', 'tests/worker-static.test.mjs',
