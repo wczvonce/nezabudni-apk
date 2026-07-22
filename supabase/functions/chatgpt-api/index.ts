@@ -1,22 +1,25 @@
-import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.108.2';
+import { formatInstantInZone, LocalTimeError, resolveLocalDateTime } from './timezone.js';
 
 const JSON_HEADERS = Object.freeze({
   'content-type': 'application/json; charset=utf-8',
   'cache-control': 'no-store',
   'x-content-type-options': 'nosniff',
+  'referrer-policy': 'no-referrer',
 });
 
 const TOKEN_HEADER = 'x-nezabudni-action-key';
 const DEFAULT_TIMEZONE = 'Europe/Bratislava';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const RFC3339_WITH_ZONE_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 const CREATE_KEYS = new Set([
   'request_id',
   'title',
   'notes',
-  'due_at',
+  'local_date',
+  'local_time',
   'timezone',
+  'ambiguous_time_choice',
   'assignee',
   'priority',
   'pre_reminder_minutes',
@@ -33,20 +36,22 @@ type IntegrationClient = {
   name: string;
   active: boolean;
   allowed_operations: string[];
+  expires_at: string;
 };
 
 type Profile = {
   id: string;
   display_name: string;
-  email: string;
 };
 
 type ReminderInput = {
   request_id: string;
   title: string;
   notes: string | null;
-  due_at: string;
+  local_date: string;
+  local_time: string;
   timezone: string;
+  ambiguous_time_choice: 'earlier' | 'later' | null;
   assignee: 'self' | 'partner';
   priority: number;
   pre_reminder_minutes: number;
@@ -105,7 +110,7 @@ async function authenticate(request: Request): Promise<IntegrationClient> {
   const tokenHash = await sha256Hex(tokenFrom(request));
   const { data, error } = await supabaseAdmin
     .from('integration_clients')
-    .select('id,actor_id,name,active,allowed_operations')
+    .select('id,actor_id,name,active,allowed_operations,expires_at')
     .eq('token_hash', tokenHash)
     .eq('active', true)
     .maybeSingle();
@@ -115,6 +120,9 @@ async function authenticate(request: Request): Promise<IntegrationClient> {
     throw new ApiError(500, 'AUTH_LOOKUP_FAILED', 'Overenie pripojenia dočasne zlyhalo.');
   }
   if (!data) throw new ApiError(401, 'UNAUTHORIZED', 'Neplatné alebo zrušené pripojenie k Nezabudni.');
+  if (!data.expires_at || new Date(data.expires_at).getTime() <= Date.now()) {
+    throw new ApiError(401, 'INTEGRATION_EXPIRED', 'Pripojenie k Nezabudni vypršalo a treba ho obnoviť.');
+  }
   return data as IntegrationClient;
 }
 
@@ -141,7 +149,7 @@ async function loadPairContext(admin: SupabaseClient, actorId: string): Promise<
   const memberIds = ((memberRows ?? []) as Array<{ user_id: string }>).map((row) => row.user_id).filter(Boolean);
   const { data: profiles, error: profilesError } = await admin
     .from('profiles')
-    .select('id,display_name,email')
+    .select('id,display_name')
     .in('id', memberIds);
   if (profilesError) throw new ApiError(500, 'PROFILES_LOOKUP_FAILED', 'Nepodarilo sa načítať profily.');
 
@@ -203,6 +211,11 @@ function asEnum<T extends string>(value: unknown, field: string, fallback: T, al
   return candidate as T;
 }
 
+function asOptionalEnum<T extends string>(value: unknown, field: string, allowed: readonly T[]): T | null {
+  if (value == null || value === '') return null;
+  return asEnum(value, field, allowed[0], allowed);
+}
+
 function parseReminder(value: unknown): ReminderInput {
   const body = requireObject(value);
   const unknownKeys = Object.keys(body).filter((key) => !CREATE_KEYS.has(key));
@@ -213,11 +226,6 @@ function parseReminder(value: unknown): ReminderInput {
   const requestId = asString(body.request_id, 'request_id', 36, 36);
   if (!UUID_RE.test(requestId)) throw new ApiError(400, 'INVALID_REQUEST_ID', 'request_id musí byť UUID.');
 
-  const dueAt = asString(body.due_at, 'due_at', 20, 40);
-  if (!RFC3339_WITH_ZONE_RE.test(dueAt) || !Number.isFinite(Date.parse(dueAt))) {
-    throw new ApiError(400, 'INVALID_DUE_AT', 'due_at musí byť platný RFC3339 čas s časovým pásmom.');
-  }
-
   const timezone = asString(body.timezone ?? DEFAULT_TIMEZONE, 'timezone', 1, 80);
   if (timezone !== DEFAULT_TIMEZONE) {
     throw new ApiError(400, 'UNSUPPORTED_TIMEZONE', `Táto integrácia momentálne používa iba ${DEFAULT_TIMEZONE}.`);
@@ -227,8 +235,10 @@ function parseReminder(value: unknown): ReminderInput {
     request_id: requestId.toLowerCase(),
     title: asString(body.title, 'title', 1, 180),
     notes: asNullableString(body.notes, 'notes', 10000),
-    due_at: new Date(dueAt).toISOString(),
+    local_date: asString(body.local_date, 'local_date', 10, 10),
+    local_time: asString(body.local_time, 'local_time', 5, 5),
     timezone,
+    ambiguous_time_choice: asOptionalEnum(body.ambiguous_time_choice, 'ambiguous_time_choice', ['earlier', 'later'] as const),
     assignee: asEnum(body.assignee, 'assignee', 'self', ['self', 'partner'] as const),
     priority: asInteger(body.priority, 'priority', 1, 1, 3),
     pre_reminder_minutes: asInteger(body.pre_reminder_minutes, 'pre_reminder_minutes', 0, 0, 10080),
@@ -240,14 +250,12 @@ function parseReminder(value: unknown): ReminderInput {
   };
 }
 
-async function canonicalPayloadHash(input: ReminderInput, assignedTo: string): Promise<string> {
-  // Fixné poradie kľúčov je zámerné: rovnaký request_id + rovnaký význam musí
-  // mať rovnaký hash bez ohľadu na poradie JSON polí od klienta.
+async function canonicalPayloadHash(input: ReminderInput, assignedTo: string, dueAt: string): Promise<string> {
   return sha256Hex(JSON.stringify({
     assigned_to: assignedTo,
     title: input.title,
     notes: input.notes,
-    due_at: input.due_at,
+    due_at: dueAt,
     timezone: input.timezone,
     priority: input.priority,
     pre_reminder_minutes: input.pre_reminder_minutes,
@@ -261,25 +269,36 @@ async function canonicalPayloadHash(input: ReminderInput, assignedTo: string): P
 
 function mapRpcError(message: string): ApiError {
   const code = message.match(/(INTEGRATION_[A-Z_]+|IDEMPOTENCY_[A-Z_]+|INVALID_[A-Z_]+|PAIR_[A-Z_]+)/)?.[1] ?? 'CREATE_FAILED';
-  if (code === 'INTEGRATION_RATE_LIMITED') return new ApiError(429, code, 'Príliš veľa nových úloh. Skús to o chvíľu znova.');
+  if (code === 'INTEGRATION_RATE_LIMITED' || code === 'INTEGRATION_DAILY_LIMITED') {
+    return new ApiError(429, code, 'Ochranný limit nových úloh bol prekročený. Skús to neskôr.');
+  }
   if (code === 'IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD') {
     return new ApiError(409, code, 'Rovnaký request_id už bol použitý s inou úlohou. Vytvor nový request_id.');
   }
-  if (code === 'INTEGRATION_DISABLED' || code === 'INTEGRATION_ACTOR_MISMATCH' || code === 'INTEGRATION_OPERATION_NOT_ALLOWED') {
+  if (['INTEGRATION_DISABLED', 'INTEGRATION_EXPIRED', 'INTEGRATION_ACTOR_MISMATCH', 'INTEGRATION_OPERATION_NOT_ALLOWED'].includes(code)) {
     return new ApiError(403, code, 'Toto pripojenie nemá povolenie vytvoriť úlohu.');
   }
   if (code.startsWith('INVALID_') || code.startsWith('PAIR_')) return new ApiError(400, code, 'Úlohu sa nepodarilo vytvoriť pre neplatné údaje.');
   return new ApiError(500, code, 'Úlohu sa momentálne nepodarilo vytvoriť.');
 }
 
+function mapLocalTimeError(error: LocalTimeError): ApiError {
+  const status = error.code === 'AMBIGUOUS_LOCAL_TIME' ? 409 : 400;
+  return new ApiError(status, error.code, error.message, error.details);
+}
+
 async function handleContext(client: IntegrationClient): Promise<Response> {
   const { actor, partner } = await loadPairContext(supabaseAdmin, client.actor_id);
+  const now = new Date();
+  const localNow = formatInstantInZone(now, DEFAULT_TIMEZONE);
   return json(200, {
     ok: true,
-    server_now: new Date().toISOString(),
+    server_now: now.toISOString(),
+    server_local_date: localNow.localDate,
+    server_local_time: localNow.localTime,
     timezone: DEFAULT_TIMEZONE,
-    actor: { id: actor.id, display_name: actor.display_name },
-    partner: { id: partner.id, display_name: partner.display_name },
+    actor: { display_name: actor.display_name },
+    partner: { display_name: partner.display_name },
     defaults: {
       priority: 1,
       pre_reminder_minutes: 0,
@@ -307,8 +326,21 @@ async function handleCreate(request: Request, client: IntegrationClient): Promis
   const input = parseReminder(raw);
   const { actor, partner } = await loadPairContext(supabaseAdmin, client.actor_id);
   const assignee = input.assignee === 'self' ? actor : partner;
-  const payloadHash = await canonicalPayloadHash(input, assignee.id);
 
+  let resolvedTime;
+  try {
+    resolvedTime = resolveLocalDateTime({
+      localDate: input.local_date,
+      localTime: input.local_time,
+      timeZone: input.timezone,
+      ambiguousTimeChoice: input.ambiguous_time_choice,
+    });
+  } catch (error) {
+    if (error instanceof LocalTimeError) throw mapLocalTimeError(error);
+    throw error;
+  }
+
+  const payloadHash = await canonicalPayloadHash(input, assignee.id, resolvedTime.dueAt);
   const { data, error } = await supabaseAdmin.rpc('api_create_task_from_integration', {
     p_client_id: client.id,
     p_actor_id: actor.id,
@@ -318,7 +350,7 @@ async function handleCreate(request: Request, client: IntegrationClient): Promis
     p_assigned_to: assignee.id,
     p_title: input.title,
     p_notes: input.notes,
-    p_due_at: input.due_at,
+    p_due_at: resolvedTime.dueAt,
     p_timezone: input.timezone,
     p_priority: input.priority,
     p_pre_reminder_minutes: input.pre_reminder_minutes,
@@ -343,15 +375,18 @@ async function handleCreate(request: Request, client: IntegrationClient): Promis
     task: {
       id: task.id,
       title: task.title,
+      local_date: input.local_date,
+      local_time: input.local_time,
+      utc_offset: resolvedTime.utcOffset,
       due_at: task.due_at,
       timezone: task.timezone,
-      assigned_to: { id: assignee.id, display_name: assignee.display_name },
-      created_by: { id: actor.id, display_name: actor.display_name },
+      assigned_to: { display_name: assignee.display_name },
+      created_by: { display_name: actor.display_name },
       notify_creator_on_complete: Boolean(task.notify_creator_on_complete),
       recurrence_rule: task.recurrence_rule,
       status: task.status,
     },
-    confirmation: `Úloha „${task.title}“ bola zapísaná pre ${assignee.display_name}.`,
+    confirmation: `Úloha „${task.title}“ bola zapísaná pre ${assignee.display_name} na ${input.local_date} o ${input.local_time}.`,
   });
 }
 
@@ -361,8 +396,6 @@ Deno.serve(async (request) => {
     const path = url.pathname.replace(/\/+$/, '');
 
     if (request.method === 'OPTIONS') {
-      // GPT Action je server-to-server a CORS nepotrebuje. Explicitne ho
-      // nepovoľujeme pre ľubovoľné weby, aby token nebolo možné zneužiť z browsera.
       return json(405, { ok: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'CORS pre túto funkciu nie je povolený.' } });
     }
 
