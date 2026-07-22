@@ -22,16 +22,7 @@ jobs:
         with:
           deno-version: '2.8.1'
       - name: ChatGPT Edge Function Deno type-check
-        id: deno_check
-        continue-on-error: true
-        run: deno check supabase/functions/chatgpt-api/index.ts > deno-check.log 2>&1
-      - name: Upload Deno diagnostics
-        if: steps.deno_check.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: deno-check-log
-          path: deno-check.log
-          if-no-files-found: error
+        run: deno check supabase/functions/chatgpt-api/index.ts
       - name: Clean install
         run: npm ci
       - name: ChatGPT timezone behavior
@@ -43,9 +34,18 @@ jobs:
       - name: Full project audit
         run: npm run audit
       - name: Dependency security audit
-        run: npm run audit:dependencies
-      - name: Enforce Deno type-check result
-        if: steps.deno_check.outcome == 'failure'
+        id: dependency_audit
+        continue-on-error: true
+        run: npm run audit:dependencies > dependency-audit.log 2>&1
+      - name: Upload dependency audit diagnostics
+        if: steps.dependency_audit.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-audit-log
+          path: dependency-audit.log
+          if-no-files-found: error
+      - name: Enforce dependency audit result
+        if: steps.dependency_audit.outcome == 'failure'
         run: exit 1
 
   android:
