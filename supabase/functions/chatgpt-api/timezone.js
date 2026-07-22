@@ -1,10 +1,22 @@
+// @ts-check
+
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const SEARCH_WINDOW_MINUTES = 4 * 60;
 
+/** @typedef {{year:number,month:number,day:number,hour:number,minute:number}} LocalParts */
+/** @typedef {'earlier'|'later'} AmbiguousTimeChoice */
+/** @typedef {{choice:string,due_at:string,utc_offset:string}} AmbiguousChoice */
+
+/** @type {Map<string, Intl.DateTimeFormat>} */
 const formatterCache = new Map();
 
 export class LocalTimeError extends Error {
+  /**
+   * @param {string} code
+   * @param {string} message
+   * @param {Record<string, unknown>=} details
+   */
   constructor(code, message, details = undefined) {
     super(message);
     this.name = 'LocalTimeError';
@@ -13,6 +25,7 @@ export class LocalTimeError extends Error {
   }
 }
 
+/** @param {string} timeZone */
 function formatterFor(timeZone) {
   let formatter = formatterCache.get(timeZone);
   if (!formatter) {
@@ -30,7 +43,13 @@ function formatterFor(timeZone) {
   return formatter;
 }
 
+/**
+ * @param {number} epochMs
+ * @param {string} timeZone
+ * @returns {LocalParts}
+ */
 function localPartsAt(epochMs, timeZone) {
+  /** @type {Record<string, string>} */
   const result = {};
   for (const part of formatterFor(timeZone).formatToParts(new Date(epochMs))) {
     if (part.type !== 'literal') result[part.type] = part.value;
@@ -44,6 +63,7 @@ function localPartsAt(epochMs, timeZone) {
   };
 }
 
+/** @param {string} localDate */
 function parseLocalDate(localDate) {
   const match = DATE_RE.exec(localDate);
   if (!match) {
@@ -59,6 +79,7 @@ function parseLocalDate(localDate) {
   return { year, month, day };
 }
 
+/** @param {string} localTime */
 function parseLocalTime(localTime) {
   const match = TIME_RE.exec(localTime);
   if (!match) {
@@ -67,12 +88,17 @@ function parseLocalTime(localTime) {
   return { hour: Number(match[1]), minute: Number(match[2]) };
 }
 
+/**
+ * @param {number} epochMs
+ * @param {string} timeZone
+ */
 function offsetMinutesAt(epochMs, timeZone) {
   const local = localPartsAt(epochMs, timeZone);
   const localAsUtc = Date.UTC(local.year, local.month - 1, local.day, local.hour, local.minute);
   return Math.round((localAsUtc - epochMs) / 60_000);
 }
 
+/** @param {number} minutes */
 function offsetText(minutes) {
   const sign = minutes >= 0 ? '+' : '-';
   const absolute = Math.abs(minutes);
@@ -81,6 +107,10 @@ function offsetText(minutes) {
   return `${sign}${hours}:${mins}`;
 }
 
+/**
+ * @param {Date|string|number} instant
+ * @param {string} timeZone
+ */
 export function formatInstantInZone(instant, timeZone) {
   const epochMs = instant instanceof Date ? instant.getTime() : new Date(instant).getTime();
   if (!Number.isFinite(epochMs)) throw new LocalTimeError('INVALID_INSTANT', 'Neplatný časový okamih.');
@@ -92,6 +122,9 @@ export function formatInstantInZone(instant, timeZone) {
   };
 }
 
+/**
+ * @param {{localDate:string,localTime:string,timeZone:string,ambiguousTimeChoice?:AmbiguousTimeChoice|null}} input
+ */
 export function resolveLocalDateTime({ localDate, localTime, timeZone, ambiguousTimeChoice = null }) {
   if (timeZone !== 'Europe/Bratislava') {
     throw new LocalTimeError('UNSUPPORTED_TIMEZONE', 'Podporované je iba časové pásmo Europe/Bratislava.');
@@ -103,6 +136,7 @@ export function resolveLocalDateTime({ localDate, localTime, timeZone, ambiguous
   const date = parseLocalDate(localDate);
   const time = parseLocalTime(localTime);
   const naiveUtc = Date.UTC(date.year, date.month - 1, date.day, time.hour, time.minute);
+  /** @type {number[]} */
   const matches = [];
 
   for (
@@ -131,6 +165,7 @@ export function resolveLocalDateTime({ localDate, localTime, timeZone, ambiguous
     );
   }
 
+  /** @type {AmbiguousChoice[]} */
   const choices = uniqueMatches.map((epochMs, index) => ({
     choice: index === 0 ? 'earlier' : 'later',
     due_at: new Date(epochMs).toISOString(),
