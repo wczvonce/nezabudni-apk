@@ -70,7 +70,7 @@ npx cap sync android
 npx cap sync ios
 ```
 
-Podrobný výsledok: `docs/DEEP-AUDIT-0.2.2-SK.md`.
+Podrobný výsledok pôvodného hĺbkového auditu: `docs/DEEP-AUDIT-0.2.2-SK.md`. ChatGPT integrácia má samostatné testy a nasadzovací postup v `docs/CHATGPT-ACTION-SETUP-SK.md`.
 
 ## Vedome odložené alebo obmedzené
 
