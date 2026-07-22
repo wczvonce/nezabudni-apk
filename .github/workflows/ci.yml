@@ -34,7 +34,7 @@ jobs:
       - name: Full project audit
         run: npm run audit
       - name: Dependency security audit
-        run: npm audit --audit-level=high
+        run: npm run audit:dependencies
 
   android:
     name: Android debug build
