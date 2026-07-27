@@ -1,8 +1,6 @@
-# Ivan – ako pokračovať cez Claude Code
+# Ivan – spustenie cez Claude Code
 
-## Najjednoduchší postup cez GitHub
-
-1. V Claude Code otvor tento repozitár a vetvu:
+## Zdroj projektu
 
 ```text
 repo: wczvonce/nezabudni-apk
@@ -10,30 +8,26 @@ branch: ekasa-claude-code-handoff
 folder: ekasa-beta
 ```
 
-2. Spusti Claude Code priamo v priečinku `ekasa-beta`.
-3. Vlož tento príkaz:
+Claude Code spusti priamo v priečinku `ekasa-beta` a vlož mu tento jediný príkaz:
 
 ```text
-Prečítaj celý CLAUDE.md a vykonaj ho. Dokonči aplikáciu priamo v súboroch, spusti testy a build a vytvor nové inštalovateľné APK v dist/eKasa-Skener-BETA.apk spolu so SHA-256. Nezostaň pri analýze a neoznač nič za otestované bez skutočného testu.
+Prečítaj celý CLAUDE.md a vykonaj ho od začiatku do konca. Máš plnú technickú autonómiu: vytvor nový súkromný repozitár wczvonce/ekasa-skener-mobile, prenes doň čistý projekt, oprav alebo prepíš všetko potrebné, reálne preskúmaj aktuálnu integráciu služby Over doklad, spusti testy, zostav a podpíš APK, pri dostupnom ADB ho nainštaluj a oprav chyby z logcat. Nezostaň pri analýze ani pri prvom neúspešnom endpointe. Výsledok musí byť dist/eKasa-Skener-BETA.apk, SHA-256, GitHub Actions artifact a laický návod pre Samsung.
 ```
 
-4. Claude má vytvoriť nový APK a GitHub Actions artifact.
-5. Výsledok nesmie zostať iba v priečinku `app/build/outputs`; musí byť skopírovaný do:
+Claude má všetky detailné požiadavky v `CLAUDE.md` a kontrolný zoznam v `ACCEPTANCE_CRITERIA.md`.
+
+## Výsledok
+
+Po dokončení má byť nový projekt v:
+
+```text
+https://github.com/wczvonce/ekasa-skener-mobile
+```
+
+A inštalačný súbor v:
 
 ```text
 dist/eKasa-Skener-BETA.apk
 ```
 
-## Odporúčané finálne usporiadanie
-
-Tento projekt je momentálne vo vetve existujúceho repozitára. Pre dlhodobú prácu je lepšie, aby Claude Code vytvoril nový súkromný repozitár:
-
-```text
-wczvonce/ekasa-skener-mobile
-```
-
-Dôvodom je čistá história projektu a oddelenie od aplikácie `nezabudni-apk`.
-
-## Dôležitá realita
-
-Aplikácia dokáže naskenovať QR a pokúsiť sa overiť doklad cez službu Over doklad. Použité technické rozhranie však nie je verejne garantované API pre tretie strany. Preto je povinný neoverený chybový stav a odkaz na oficiálnu službu. Claude nesmie predstierať úspešné overenie, ak odpoveď neobsahuje skutočný doklad.
+Ak GitHub CLI ešte nie je prihlásený, Claude ťa vyzve iba na oficiálne prihlásenie do GitHubu. Všetky ostatné technické rozhodnutia má urobiť sám.
