@@ -7,6 +7,12 @@ on:
     paths:
       - 'ekasa-beta/**'
       - '.github/workflows/ekasa-beta-apk.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'ekasa-beta/**'
+      - '.github/workflows/ekasa-beta-apk.yml'
   workflow_dispatch:
 
 permissions:
