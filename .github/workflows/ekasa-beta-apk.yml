@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - ekasa-beta-apk
+      - ekasa-claude-code-handoff
     paths:
       - 'ekasa-beta/**'
       - '.github/workflows/ekasa-beta-apk.yml'
@@ -47,15 +48,15 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Build debug APK
+      - name: Test, lint and build debug APK
         working-directory: ekasa-beta
-        run: gradle --no-daemon --stacktrace :app:assembleDebug
+        run: gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 
       - name: Prepare named APK
         run: |
           mkdir -p release
-          cp ekasa-beta/app/build/outputs/apk/debug/app-debug.apk release/eKasa-Skener-BETA-0.2.0.apk
-          sha256sum release/eKasa-Skener-BETA-0.2.0.apk > release/SHA256.txt
+          cp ekasa-beta/app/build/outputs/apk/debug/app-debug.apk release/eKasa-Skener-BETA.apk
+          sha256sum release/eKasa-Skener-BETA.apk > release/eKasa-Skener-BETA.apk.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
