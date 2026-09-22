@@ -31,6 +31,19 @@ public class RegressionTest {
             return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
         }
     }
+    private void awaitRenderedFrame() throws Exception {
+        CountDownLatch rendered = new CountDownLatch(1);
+        activity.runOnUiThread(() -> {
+            WebView web = activity.getBridge().getWebView();
+            web.postVisualStateCallback(System.nanoTime(), new WebView.VisualStateCallback() {
+                @Override public void onComplete(long requestId) {
+                    web.invalidate();
+                    web.postOnAnimation(() -> web.postOnAnimation(rendered::countDown));
+                }
+            });
+        });
+        assertTrue("WebView frame was not rendered", rendered.await(10, TimeUnit.SECONDS));
+    }
     @Test(timeout = 180000) public void launchAndRunRegressionScenarios() throws Exception {
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
             scenario.onActivity(value -> activity = value);
@@ -53,6 +66,7 @@ public class RegressionTest {
                 String checkpoint = new JSONArray("["+evaluate(scenario,"window.__androidCheckpoint || ''")+"]").getString(0);
                 if (!checkpoint.isEmpty() && !checkpoint.equals(captured)) {
                     assertTrue("Unexpected screenshot name", checkpoint.matches("[a-z-]+"));
+                    awaitRenderedFrame();
                     java.io.File file = new java.io.File(InstrumentationRegistry.getInstrumentation().getTargetContext().getExternalFilesDir(null), checkpoint+".png");
                     android.graphics.Bitmap bitmap = InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();
                     assertNotNull("Screenshot missing",bitmap);

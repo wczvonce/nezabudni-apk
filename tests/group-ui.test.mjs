@@ -6,4 +6,5 @@ for(const key of ['window','document','HTMLElement','HTMLInputElement','Event','
 Object.defineProperty(globalThis,'navigator',{value:dom.window.navigator,configurable:true});
 const {bindUi}=await import('../src/ui/app-ui.js');bindUi();
 const {runGroupScenarios}=await import('./group-ui-scenarios.mjs');
-try{const results=await runGroupScenarios();console.log(`GROUP UI: ${results.length} scenarios OK`);process.exit(0);}catch(error){console.error(error);process.exit(1);}
+const {closeTaskService}=await import('../src/services/task-service.js');
+try{const results=await runGroupScenarios();await closeTaskService();console.log(`GROUP UI: ${results.length} scenarios OK`);process.exit(0);}catch(error){console.error(error);process.exit(1);}

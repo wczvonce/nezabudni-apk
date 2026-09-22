@@ -71,6 +71,7 @@ export async function runGroupScenarios() {
   let saved;
   for(let i=0;i<100;i++){saved=(await svc.cachedTasks()).find(t=>t.title==='New task for third member');if(saved && !$('taskSheet').classList.contains('show'))break;await wait(20);}
   check(saved?.assigned_to===C && saved?.notify_creator_on_complete===true && !$('taskSheet').classList.contains('show') && $('main').textContent.includes(saved.title),'create task for third member with completion notification');
-  await svc.closeTaskService();
+  // Caller closes the synthetic DB after visual inspection. A visibility
+  // event during screenshot capture must still be able to read this cache.
   return results;
 }

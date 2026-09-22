@@ -78,6 +78,7 @@ async function run() {
   checks.push(...await runGroupScenarios());
   await wait(200);
   await screenshot('three-members');
+  await svc.closeTaskService();
   return {ok:true,checks};
 }
 run().then(result=>{window.__androidReview=result;}).catch(error=>{window.__androidReview={ok:false,checks,error:String(error.stack||error)};});
