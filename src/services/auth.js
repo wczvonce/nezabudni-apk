@@ -44,6 +44,13 @@ export async function signOut() {
   if (error) throw error;
 }
 
+export async function signUp(email, password) {
+  if (!supabase) throw new Error('Cloud nie je nakonfigurovaný.');
+  const { data, error } = await withTimeout(supabase.auth.signUp({email,password}), 'Registrácia trvá príliš dlho. Skontroluj e-mail pred opakovaním.', 20000);
+  if (error) throw error;
+  return data;
+}
+
 export function onAuthChange(callback) {
   if (!supabase) return () => {};
 

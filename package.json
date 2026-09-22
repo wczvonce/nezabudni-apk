@@ -1,7 +1,7 @@
 {
   "name": "nezabudni-v19",
   "private": true,
-  "version": "0.2.13",
+  "version": "0.2.14",
   "type": "module",
   "description": "Nezabudni testovacia – spoločné pripomienky pre Ivana a Dominiku",
   "scripts": {
@@ -18,7 +18,8 @@
     "check:chatgpt-api": "deno check supabase/functions/chatgpt-api/index.ts",
     "check:android": "node scripts/check-android-package.mjs",
     "audit:dependencies": "node tests/dependency-audit.test.mjs && node scripts/dependency-audit.mjs",
-    "audit": "npm run test && npm run check:worker && npm run check:chatgpt-api && npm run check:android && npm run validate"
+    "test:groups": "node tests/group-sql.test.mjs && node tests/group-ui.test.mjs",
+    "audit": "npm run test && npm run test:groups && npm run check:worker && npm run check:chatgpt-api && npm run check:android && npm run validate"
   },
   "dependencies": {
     "@capacitor/android": "8.4.1",

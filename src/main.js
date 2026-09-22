@@ -23,6 +23,7 @@ import { platform } from './lib/platform.js';
 import { withAbortTimeout } from './lib/async.js';
 import { classifyStartupError } from './lib/startup.js';
 import { readBackendSchema } from './lib/backend-capabilities.js';
+import { bindMembershipAuth, showJoinGroup, resetMembershipAuth } from './ui/membership-auth-ui.js';
 
 const BOOT_STEP_TIMEOUT_MS = 20_000;
 let unsubscribeAuth = null;
@@ -48,6 +49,7 @@ function isCurrentTransition(generation, userId) {
 async function bootstrap() {
   bindUi();
   bindLogin();
+  bindMembershipAuth(handleAuthSession);
   showLoading(true);
 
   if (platform.isWeb && 'serviceWorker' in navigator) {
@@ -216,6 +218,7 @@ async function bootUser(user, generation) {
         break;
       } catch (error) {
         criticalError = error;
+        if (error.code === 'NO_MEMBERSHIP') break;
         if (classifyStartupError(error) === 'auth') break;
         // Prechodná chyba: krátke čakanie a tichý opätovný pokus.
         if (attempt === 0 && isCurrentTransition(generation, user.id)) {
@@ -225,6 +228,12 @@ async function bootUser(user, generation) {
     }
     if (criticalError) {
       if (!isCurrentTransition(generation, user.id)) return;
+      if (criticalError.code === 'NO_MEMBERSHIP') {
+        showLoading(false); resetTransientUi(); resetState();
+        showAuth(true, 'Nový člen potrebuje pozvánku od vlastníka skupiny.');
+        showJoinGroup(user);
+        return;
+      }
       console.error('Startup critical phase failed', criticalError);
       // Iba POTVRDENÉ zlyhanie autentifikácie smie odhlásiť. Prechodná chyba
       // (sieť, timeout, DB) ponechá platnú reláciu a ukáže zotaviteľný stav.
@@ -354,12 +363,13 @@ async function showSignedOut(generation) {
   if (!isCurrentTransition(generation, null)) return;
   resetTransientUi();
   resetState();
+  resetMembershipAuth();
   showLoading(false);
   setRetryVisible(false);
   // Pri SIGNED_OUT už nemusí existovať platný JWT, preto tu nevoláme
   // serverové odregistrovanie zariadenia. Manuálne odhlásenie ho vykoná
   // ešte pred zrušením relácie.
-  showAuth(true, 'Prihlás sa účtom, ktorý vytvoríme v novom Supabase projekte.');
+  showAuth(true, 'Prihlás sa svojím účtom. Nový člen si vytvorí účet a prijme pozvánku od vlastníka.');
 }
 
 window.addEventListener('beforeunload', () => unsubscribeAuth?.());

@@ -24,13 +24,32 @@
   <section id="authScreen" class="auth-screen" hidden>
     <div class="auth-card">
       <div class="auth-logo"><span class="dot"></span>Nezabudni</div>
-      <p class="auth-sub">Testovacia spoločná aplikácia pre Ivana a Dominiku. Prihlásenie zostane v telefóne uložené.</p>
+      <p class="auth-sub">Spoločné úlohy pre tvoju skupinu. Prihlásenie zostane v telefóne uložené.</p>
       <form id="loginForm" class="auth-form">
         <div class="field"><label for="loginEmail">E-mail</label><input id="loginEmail" type="email" autocomplete="email" required placeholder="meno@email.sk" /></div>
         <div class="field"><label for="loginPassword">Heslo</label><input id="loginPassword" type="password" autocomplete="current-password" required placeholder="••••••••" /></div>
         <div id="loginError" class="auth-error"></div>
         <button class="save-btn" type="submit">Prihlásiť</button>
         <button id="demoBtn" class="secondary-btn" type="button" hidden>Spustiť ukážkový režim</button>
+      </form>
+      <details id="registrationPanel">
+        <summary>Som nový člen — vytvoriť účet</summary>
+        <form id="registerForm" class="auth-form">
+          <p>Použi e-mail, na ktorý ti vlastník pripravil pozvánku. Po registrácii potvrď e-mail a prihlás sa vyššie.</p>
+          <div class="field"><label for="registerEmail">E-mail z pozvánky</label><input id="registerEmail" type="email" autocomplete="email" required /></div>
+          <div class="field"><label for="registerPassword">Nové heslo (aspoň 12 znakov)</label><input id="registerPassword" type="password" autocomplete="new-password" minlength="12" required /></div>
+          <button class="secondary-btn" type="submit">Vytvoriť účet</button>
+          <p id="registerMessage" role="status"></p>
+        </form>
+      </details>
+      <form id="joinGroupForm" class="auth-form" hidden>
+        <p id="joinAccount"></p>
+        <div class="field"><label for="joinName">Tvoje zobrazované meno</label><input id="joinName" maxlength="80" autocomplete="name" required /></div>
+        <div class="field"><label for="joinCode">Kód pozvánky od vlastníka</label><input id="joinCode" autocomplete="off" autocapitalize="none" spellcheck="false" minlength="64" maxlength="64" required /></div>
+        <label class="check-row"><input id="joinShareAll" type="checkbox" required /><span>Rozumiem: všetci členovia skupiny uvidia všetky spoločné úlohy vrátane mojich.</span></label>
+        <button class="save-btn" type="submit">Prijať pozvánku a pripojiť sa</button>
+        <p id="joinMessage" role="status"></p>
+        <button id="joinSignOutBtn" type="button" class="secondary-btn">Odhlásiť tento účet</button>
       </form>
       <p id="setupHint" class="auth-meta"></p>
       <button id="retryBootBtn" class="secondary-btn" type="button" hidden>Skúsiť znova</button>
@@ -62,7 +81,7 @@
       <div class="field"><label for="fNote">Poznámka (voliteľné)</label><textarea id="fNote" maxlength="4000" placeholder="Detaily…"></textarea></div>
       <div class="field"><label for="fAssigned">Komu má úloha patriť</label><select id="fAssigned"></select><p class="field-help">Upozornenia v čase úlohy dostane iba vybraná osoba.</p></div>
       <div class="field partner-notify" id="notifyCreatorWrap" hidden>
-        <label class="check-row" for="fNotifyCreator"><input id="fNotifyCreator" type="checkbox" /> <span class="check-label">Upozorni ma, keď partner úlohu splní</span></label>
+        <label class="check-row" for="fNotifyCreator"><input id="fNotifyCreator" type="checkbox" /> <span class="check-label">Upozorni ma, keď príjemca úlohu splní</span></label>
       </div>
       <div class="field">
         <label>Prílohy — obrázky a dokumenty</label>
@@ -90,6 +109,26 @@
   </div>
 
   <div class="toast" id="toast"></div>
+  <section id="groupDialog" class="group-overlay" role="dialog" aria-modal="true" aria-label="Členovia skupiny" hidden>
+    <div class="group-panel">
+      <h2>Členovia skupiny</h2><p id="groupMemberNames"></p>
+      <p class="notice">Každý člen vidí všetky spoločné úlohy vrátane starších úloh a ich príloh. Termínové upozornenia dostáva vybraný príjemca.</p>
+      <button id="refreshMembersBtn" type="button" class="secondary-btn">Obnoviť členov a pozvánky</button>
+      <form id="groupInviteForm" class="auth-form" hidden>
+        <h3>Pridať človeka</h3>
+        <div class="field"><label for="inviteEmail">E-mail nového člena</label><input id="inviteEmail" type="email" maxlength="254" required /></div>
+        <label class="check-row"><input id="inviteShareAll" type="checkbox" required /><span>Súhlasím, aby tento človek videl všetky spoločné úlohy.</span></label>
+        <button id="createInviteBtn" type="submit" class="save-btn">Vytvoriť pozvánku</button>
+      </form>
+      <div id="inviteResult" hidden>
+        <p>Pošli tento kód súkromne pozvanému človeku. Automatický e-mail s kódom sa neposiela.</p>
+        <textarea id="inviteCode" readonly aria-label="Jednorazový kód pozvánky" rows="3"></textarea>
+        <p id="inviteExpiry"></p>
+      </div>
+      <p id="groupMessage" role="status"></p><div id="inviteList"></div>
+      <button id="closeGroupBtn" type="button" class="secondary-btn">Zavrieť</button>
+    </div>
+  </section>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

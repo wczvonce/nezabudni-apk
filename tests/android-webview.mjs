@@ -4,6 +4,7 @@ import * as svc from '../src/services/task-service.js';
 import { __setSupabaseForTests } from '../src/lib/supabase.js';
 import { handleForegroundWillDisplay } from '../src/services/notification-service.js';
 import { readBackendSchema } from '../src/lib/backend-capabilities.js';
+import { runGroupScenarios } from './group-ui-scenarios.mjs';
 
 const checks = [];
 function check(condition, name) { if (!condition) throw new Error(name); checks.push(name); }
@@ -74,6 +75,9 @@ async function run() {
   try { await readBackendSchema({rpc:()=>({abortSignal:()=>new Promise(()=>{})})},30); } catch(error) { timeout=error.code==='TIMEOUT'; }
   check(timeout,'hung request times out on Android');
   await screenshot('completed-after-conflict');
+  checks.push(...await runGroupScenarios());
+  await wait(200);
+  await screenshot('three-members');
   return {ok:true,checks};
 }
 run().then(result=>{window.__androidReview=result;}).catch(error=>{window.__androidReview={ok:false,checks,error:String(error.stack||error)};});

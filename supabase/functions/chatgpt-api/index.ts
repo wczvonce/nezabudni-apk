@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.108.2';
 import { formatInstantInZone, LocalTimeError, resolveLocalDateTime } from './timezone.js';
+import { selectPartnerId } from './partner.js';
 
 const JSON_HEADERS = Object.freeze({
   'content-type': 'application/json; charset=utf-8',
@@ -158,11 +159,17 @@ async function loadPairContext(admin: SupabaseClient, actorId: string): Promise<
   const actor = byId.get(actorId);
   const partners = memberIds.filter((id) => id !== actorId).map((id) => byId.get(id)).filter(Boolean) as Profile[];
   if (!actor) throw new ApiError(409, 'ACTOR_PROFILE_MISSING', 'Profil používateľa nie je nakonfigurovaný.');
-  if (partners.length !== 1) {
-    throw new ApiError(409, 'PAIR_SHAPE_UNSUPPORTED', 'ChatGPT integrácia vyžaduje presne jedného partnera.');
+  let configuredPartner: string | null = null;
+  if (partners.length > 1) {
+    const { data: primary, error: primaryError } = await admin.from('pair_primary_partners')
+      .select('partner_id').eq('actor_id', actorId).eq('pair_id', membership.pair_id).maybeSingle();
+    if (primaryError) throw new ApiError(409, 'PAIR_SHAPE_UNSUPPORTED', 'Skupina potrebuje nastavenie pôvodného partnera.');
+    configuredPartner = primary?.partner_id ?? null;
   }
-
-  return { pairId: membership.pair_id, actor, partner: partners[0] };
+  const partnerId = selectPartnerId(memberIds, actorId, configuredPartner);
+  const partner = partnerId ? byId.get(partnerId) : null;
+  if (!partner) throw new ApiError(409, 'PAIR_SHAPE_UNSUPPORTED', 'Partner nie je jednoznačne nastavený.');
+  return { pairId: membership.pair_id, actor, partner };
 }
 
 function requireObject(value: unknown): Record<string, unknown> {

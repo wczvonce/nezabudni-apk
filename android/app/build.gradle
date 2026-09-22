@@ -7,8 +7,8 @@ android {
         applicationId "sk.povraznik.nezabudni.test"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 17
-        versionName "1.0.16"
+        versionCode 18
+        versionName "1.0.17"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -50,7 +50,7 @@ apply from: 'capacitor.build.gradle'
 tasks.register('prepareReviewTestAssets', Exec) {
     workingDir rootProject.projectDir.parentFile
     commandLine 'node', 'scripts/prepare-android-tests.mjs'
-    inputs.files(fileTree('../../src'), file('../../index.html'), file('../../tests/android-webview.mjs'), file('../../scripts/prepare-android-tests.mjs'))
+    inputs.files(fileTree('../../src'), file('../../index.html'), fileTree('../../tests'), file('../../supabase/functions/chatgpt-api/partner.js'), file('../../scripts/prepare-android-tests.mjs'))
     outputs.dir(layout.buildDirectory.dir('generated/reviewTestAssets'))
 }
 tasks.configureEach { task ->

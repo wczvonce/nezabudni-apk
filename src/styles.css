@@ -252,4 +252,9 @@ button,input,select,textarea{font:inherit}
 .loading-screen{position:fixed;inset:0;z-index:300;background:var(--bg);display:grid;place-items:center}.loading-card{text-align:center}.loading-card .upd-spinner{border-color:rgba(255,90,60,.2);border-top-color:var(--accent)}
 .form-actions{display:grid;gap:9px}.danger-link{border:none;background:transparent;color:#ff8174;padding:12px;cursor:pointer;font-weight:600}
 .file-progress{font-size:12px;color:var(--txt-dim);margin-top:7px}
+.group-overlay{position:fixed;inset:0;z-index:150;background:rgba(0,0,0,.7);overflow:auto;padding:calc(var(--safe-top) + 16px) 16px calc(var(--safe-bot) + 16px)}
+.group-panel{max-width:520px;margin:auto;padding:22px;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:22px;display:grid;gap:16px}
+.group-panel textarea{width:100%;background:var(--card);color:var(--txt);padding:12px;border:1px solid var(--line);border-radius:10px;overflow-wrap:anywhere}
+.group-invite-row{display:grid;gap:8px;padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+#registrationPanel{margin-top:20px}#registrationPanel summary{cursor:pointer;margin-bottom:15px}
 @media(max-width:380px){.user-chip{display:none}.h-top{gap:8px}.brand{font-size:23px}}
