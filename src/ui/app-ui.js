@@ -582,6 +582,20 @@ function showAlarmForTask(task) {
 function closeAlarm() { dom.alarmScrim.classList.remove('show'); alarmTask = null; }
 async function handleAlarmAction(action, minutes) { if (!alarmTask) return; const id = alarmTask.id; closeAlarm(); await mutateTask(action, id, minutes); }
 
+export function showForegroundReminder(taskId, kind) {
+  if (!['task_due', 'task_repeat'].includes(kind)) return false;
+  const state = getState();
+  if (!state.user || document.visibilityState === 'hidden' || dom.sheet?.classList.contains('show')) return false;
+  const task = state.tasks.find((t) => t.id === taskId);
+  if (!task || task.status !== 'pending' || task.deleted_at || task.acknowledged_at || task.assigned_to !== state.user.id || dueMs(task) > Date.now()) return false;
+  if (alarmTask) return alarmTask.id === task.id;
+  // This is the replacement for an already delivered server reminder, not
+  // an additional periodic attempt. Its server counter may already equal max.
+  markAlarmShown(task);
+  showAlarmForTask(task);
+  return true;
+}
+
 export function openTaskFromNotification(taskId) {
   if (!taskId) return;
   if (!getState().user) {

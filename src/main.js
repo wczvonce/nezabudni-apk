@@ -14,6 +14,7 @@ import {
   render,
   syncNow,
   openTaskFromNotification,
+  showForegroundReminder,
   processPendingNotification,
   resetTransientUi,
   toast,
@@ -21,6 +22,7 @@ import {
 import { platform } from './lib/platform.js';
 import { withAbortTimeout } from './lib/async.js';
 import { classifyStartupError } from './lib/startup.js';
+import { readBackendSchema } from './lib/backend-capabilities.js';
 
 const BOOT_STEP_TIMEOUT_MS = 20_000;
 let unsubscribeAuth = null;
@@ -243,8 +245,7 @@ async function bootUser(user, generation) {
     // režim musí fungovať), len zobrazí trvalé varovanie a diagnostiku.
     try {
       const REQUIRED_SCHEMA = 11;
-      const { data: caps, error: capsError } = await supabase.rpc('get_backend_capabilities');
-      const schema = capsError ? 0 : Number(caps?.schema_version || 0);
+      const schema = await readBackendSchema(supabase);
       if (isCurrentTransition(generation, user.id)) {
         setState({ backendSchema: schema });
         if (schema < REQUIRED_SCHEMA) {
@@ -261,15 +262,12 @@ async function bootUser(user, generation) {
       const notificationStatus = await withTimeout(
         initializeNotifications(({ taskId, action, kind }) => {
           if (!taskId) return;
-          // Push doručený s appkou V POPREDÍ nie je klik používateľa — nesmie
-          // sám otvárať alarm/formulár (zahodil by rozpísaný koncept a pri
-          // nesplatnej úlohe by ponúkol škodlivé „OK/Odložiť"). Splatné úlohy
-          // pripomenie in-app budík (checkDueAlarm); tu stačí toast + sync.
+          // The UI confirms a replacement only for a due reminder with no
+          // editor open; otherwise the notification service keeps native push.
           if (action === 'foreground') {
-            const task = getState().tasks.find((t) => t.id === taskId);
-            if (task) toast(kind === 'task_completed' ? `✓ Splnené: ${task.title}` : `🔔 ${task.title}`);
+            const shown = showForegroundReminder(taskId, kind);
             syncNow();
-            return;
+            return shown;
           }
           openTaskFromNotification(taskId);
         }),

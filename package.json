@@ -1,7 +1,7 @@
 {
   "name": "nezabudni-v19",
   "private": true,
-  "version": "0.2.12",
+  "version": "0.2.13",
   "type": "module",
   "description": "Nezabudni testovacia – spoločné pripomienky pre Ivana a Dominiku",
   "scripts": {
@@ -17,7 +17,7 @@
     "check:worker": "node scripts/check-worker.mjs",
     "check:chatgpt-api": "deno check supabase/functions/chatgpt-api/index.ts",
     "check:android": "node scripts/check-android-package.mjs",
-    "audit:dependencies": "node scripts/dependency-audit.mjs",
+    "audit:dependencies": "node tests/dependency-audit.test.mjs && node scripts/dependency-audit.mjs",
     "audit": "npm run test && npm run check:worker && npm run check:chatgpt-api && npm run check:android && npm run validate"
   },
   "dependencies": {
@@ -37,7 +37,11 @@
     "vite": "8.0.16"
   },
   "overrides": {
-    "tar": "7.5.19",
-    "brace-expansion": "5.0.7"
+    "tar": "7.5.22",
+    "brace-expansion": "5.0.12",
+    "@xmldom/xmldom": "0.9.12",
+    "nanoid": "3.3.19",
+    "postcss": "8.5.28",
+    "undici": "7.29.1"
   }
 }

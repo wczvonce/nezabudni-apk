@@ -22,7 +22,7 @@ Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurabl
 
 const { initTaskService, closeTaskService, cacheTasks } = await import('../src/services/task-service.js');
 const { setState, resetState } = await import('../src/state/store.js');
-const { bindUi, showApp, openTaskFromNotification } = await import('../src/ui/app-ui.js');
+const { bindUi, showApp, openTaskFromNotification, showForegroundReminder, resetTransientUi } = await import('../src/ui/app-ui.js');
 
 const USER='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const PARTNER='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -85,13 +85,39 @@ assert.ok(sheetShown(), 'Partnerova úloha mala otvoriť detail');
 // Regres (2026-07-09): push „partner splnil / nová úloha" musí PÍPNUŤ aj
 // s appkou v popredí (žiadny in-app budík ho nenahrádza). Potláčajú sa len
 // pripomienky, ktoré majú vlastný in-app alarm.
-const { shouldDisplayInForeground } = await import('../src/services/notification-service.js');
+const { shouldDisplayInForeground, handleForegroundWillDisplay } = await import('../src/services/notification-service.js');
 for (const kind of ['task_completed', 'task_assigned', 'test', null, undefined]) {
   assert.ok(shouldDisplayInForeground(kind), `${kind} má v popredí pípnuť natívne`);
 }
 for (const kind of ['task_pre', 'task_due', 'task_repeat']) {
-  assert.ok(!shouldDisplayInForeground(kind), `${kind} má byť v popredí potlačený (in-app budík)`);
+  assert.ok(shouldDisplayInForeground(kind), `${kind}: bez viditeľnej náhrady musí zostať natívne upozornenie`);
 }
+assert.ok(shouldDisplayInForeground('task_pre', true), 'Predpripomienku nenahrádza budík v termíne');
+assert.equal(shouldDisplayInForeground('task_due', true), false);
+
+resetTransientUi();
+const delivered = { ...myDue, max_reminders: 1, reminders_sent: 1 };
+setState({ tasks: [delivered] });
+let suppressed = false;
+const delivery = (kind = 'task_due') => ({ notification: { additionalData: { task_id: delivered.id, kind } }, preventDefault: () => { suppressed = true; } });
+handleForegroundWillDisplay(delivery(), ({ taskId, kind }) => showForegroundReminder(taskId, kind));
+assert.ok(alarmShown(), 'Aj posledný push musí mať viditeľnú náhradu pri reminders_sent=max');
+assert.ok(suppressed, 'Push sa potlačí až po zobrazení náhrady');
+resetTransientUi();
+openTaskFromNotification(myFuture.id);
+// Open an actual editor with a draft before a reminder arrives.
+setState({ tasks: [myFuture, delivered] });
+openTaskFromNotification(myFuture.id);
+document.getElementById('fTitle').value = 'Rozpísaná úloha';
+suppressed = false;
+handleForegroundWillDisplay(delivery(), ({ taskId, kind }) => showForegroundReminder(taskId, kind));
+assert.equal(suppressed, false, 'Otvorený editor: push nesmie zmiznúť');
+assert.equal(document.getElementById('fTitle').value, 'Rozpísaná úloha');
+assert.ok(sheetShown());
+assert.equal(alarmShown(), false);
+suppressed = false;
+handleForegroundWillDisplay(delivery(), () => { throw new Error('Simulated UI failure'); });
+assert.equal(suppressed, false, 'Chyba UI zachová natívne upozornenie');
 
 await closeTaskService();
 resetState();

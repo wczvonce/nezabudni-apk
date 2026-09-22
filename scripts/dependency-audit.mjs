@@ -1,16 +1,21 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { parseAuditResult } from './audit-result.mjs';
 
-const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-const result = spawnSync(npmCommand, ['audit', '--audit-level=high', '--json'], {
+const npmCli = process.env.npm_execpath || path.join(path.dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js');
+const useCli = existsSync(npmCli);
+// Execute the JS CLI directly: spawning npm.cmd without a shell fails on Windows.
+const result = spawnSync(useCli ? process.execPath : 'npm', [...(useCli ? [npmCli] : []), 'audit', '--audit-level=high', '--json'], {
   encoding: 'utf8',
   maxBuffer: 20 * 1024 * 1024,
 });
 
 let report;
 try {
-  report = JSON.parse(result.stdout || '{}');
+  report = parseAuditResult(result);
 } catch (error) {
-  console.error('DEPENDENCY AUDIT: npm nevrátil platný JSON.');
+  console.error('DEPENDENCY AUDIT FAILED: kontrolu sa nepodarilo spoľahlivo vykonať.');
   console.error(result.stderr || error.message);
   process.exit(1);
 }
