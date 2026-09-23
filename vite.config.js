@@ -7,6 +7,7 @@ export default defineConfig({
       input: {
         app: fileURLToPath(new URL('./index.html', import.meta.url)),
         consent: fileURLToPath(new URL('./oauth/consent.html', import.meta.url)),
+        recovery: fileURLToPath(new URL('./oauth/recovery.html', import.meta.url)),
       },
     },
   },

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="sk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Obnova hesla – Nezabudni</title>
+  <link rel="stylesheet" href="./consent.css">
+</head>
+<body>
+  <main>
+    <h1>Obnova hesla – Nezabudni</h1>
+    <p id="message" role="status" aria-live="polite">Overujem odkaz…</p>
+    <form id="request" hidden>
+      <label>E-mail účtu <input name="email" type="email" autocomplete="username" required maxlength="254"></label>
+      <button type="submit">Poslať obnovovací e-mail</button>
+    </form>
+    <form id="change" hidden>
+      <p>Nové heslo zadávajte iba sem. Neposielajte ho do chatu.</p>
+      <label>Nové heslo (aspoň 12 znakov) <input name="password" type="password" autocomplete="new-password" required minlength="12" maxlength="128"></label>
+      <label>Zopakujte nové heslo <input name="confirm" type="password" autocomplete="new-password" required minlength="12" maxlength="128"></label>
+      <button type="submit">Uložiť nové heslo</button>
+    </form>
+    <p><a href="/">Otvoriť Nezabudni</a></p>
+  </main>
+  <script type="module" src="./recovery.js"></script>
+</body>
+</html>
