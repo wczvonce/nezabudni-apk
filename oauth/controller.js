@@ -2,6 +2,8 @@ const scopeLabels = Object.freeze({
   openid: 'Overenie totožnosti účtu',
   profile: 'Základné údaje profilu',
   email: 'E-mailová adresa účtu',
+  // OAuth session renewal, not an additional task/data permission.
+  offline_access: 'Obnovovanie prihlásenia bez opakovaného zadávania hesla (prístup možno odvolať)',
   create_task: 'Vytváranie úloh',
   read_tasks: 'Čítanie úloh vo vašej skupine',
   upload_attachment: 'Pridávanie príloh k úlohám vo vašej skupine',

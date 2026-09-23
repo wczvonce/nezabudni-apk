@@ -105,3 +105,37 @@ assert.equal(checkedRedirect('http://127.0.0.1:8888/callback'), 'http://127.0.0.
   assert.equal(page.document.body.textContent.includes('private diagnostic'), false);
 }
 console.log('OAuth consent: validation, explicit consent, refusal, XSS, retry and redirect checks passed.');
+
+// Exact scope combination observed in ChatGPT's authorization request.
+{
+  const page = setup({ ...details, scope: 'openid email offline_access' });
+  await page.login();
+  assert.equal(page.el('approve').disabled, false);
+  assert.match(page.el('scopes').textContent, /Obnovovanie prihlásenia/);
+  assert.deepEqual(page.calls.map(x => x[0]), ['login', 'details'], 'No automatic grant after login');
+  page.el('approve').click();
+  page.el('approve').click();
+  await settle();
+  assert.deepEqual(page.calls.find(x => x[0] === 'grant'),
+    ['grant', details.client.id, ['create_task', 'read_tasks', 'upload_attachment']],
+    'offline_access must not become a task permission');
+  assert.equal(page.calls.filter(x => x[0] === 'approve').length, 1);
+  assert.equal(page.calls.at(-1)[0], 'navigate');
+}
+{
+  const page = setup({ ...details, scope: 'openid email offline_access' });
+  await page.login();
+  page.el('deny').click();
+  await settle();
+  assert.equal(page.calls.some(x => x[0] === 'grant' || x[0] === 'approve'), false);
+  assert.equal(page.calls.filter(x => x[0] === 'deny').length, 1);
+}
+for (const scope of ['openid email offline_access admin', 'openid offline_access_unknown', 'openid OFFLINE_ACCESS']) {
+  const page = setup({ ...details, scope });
+  await page.login();
+  assert.equal(page.el('approve').disabled, true);
+  page.el('approve').click();
+  await settle();
+  assert.deepEqual(page.calls.map(x => x[0]), ['login', 'details']);
+}
+console.log('OAuth offline_access: explicit consent, exact scope allowlist, refusal, retry and unchanged task grants passed.');
