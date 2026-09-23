@@ -1,6 +1,9 @@
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.108.2';
 import { formatInstantInZone, LocalTimeError, resolveLocalDateTime } from './timezone.js';
 import { selectPartnerId } from './partner.js';
+import { parseTaskFilters } from './task-filters.js';
+import { AttachmentError } from './attachment-policy.js';
+import { reserveAttachment, uploadAttachment, attachmentDownload } from './attachments.ts';
 
 const JSON_HEADERS = Object.freeze({
   'content-type': 'application/json; charset=utf-8',
@@ -22,6 +25,7 @@ const CREATE_KEYS = new Set([
   'timezone',
   'ambiguous_time_choice',
   'assignee',
+  'assignee_id',
   'priority',
   'pre_reminder_minutes',
   'recurrence_rule',
@@ -31,7 +35,7 @@ const CREATE_KEYS = new Set([
   'max_reminders',
 ]);
 
-type IntegrationClient = {
+export type IntegrationClient = {
   id: string;
   actor_id: string;
   name: string;
@@ -54,6 +58,7 @@ type ReminderInput = {
   timezone: string;
   ambiguous_time_choice: 'earlier' | 'later' | null;
   assignee: 'self' | 'partner';
+  assignee_id: string | null;
   priority: number;
   pre_reminder_minutes: number;
   recurrence_rule: 'none' | 'daily' | 'weekly' | 'monthly';
@@ -87,7 +92,7 @@ function mustEnv(name: string): string {
   return value;
 }
 
-const supabaseAdmin = createClient(
+export const supabaseAdmin = createClient(
   mustEnv('SUPABASE_URL'),
   mustEnv('SUPABASE_SERVICE_ROLE_KEY'),
   { auth: { persistSession: false, autoRefreshToken: false } },
@@ -113,6 +118,7 @@ async function authenticate(request: Request): Promise<IntegrationClient> {
     .from('integration_clients')
     .select('id,actor_id,name,active,allowed_operations,expires_at')
     .eq('token_hash', tokenHash)
+    .is('oauth_client_id', null)
     .eq('active', true)
     .maybeSingle();
 
@@ -131,6 +137,7 @@ async function loadPairContext(admin: SupabaseClient, actorId: string): Promise<
   pairId: string;
   actor: Profile;
   partner: Profile;
+  members: Profile[];
 }> {
   const { data: membership, error: membershipError } = await admin
     .from('pair_members')
@@ -169,7 +176,7 @@ async function loadPairContext(admin: SupabaseClient, actorId: string): Promise<
   const partnerId = selectPartnerId(memberIds, actorId, configuredPartner);
   const partner = partnerId ? byId.get(partnerId) : null;
   if (!partner) throw new ApiError(409, 'PAIR_SHAPE_UNSUPPORTED', 'Partner nie je jednoznačne nastavený.');
-  return { pairId: membership.pair_id, actor, partner };
+  return { pairId: membership.pair_id, actor, partner, members: profileRows };
 }
 
 function requireObject(value: unknown): Record<string, unknown> {
@@ -238,8 +245,13 @@ function parseReminder(value: unknown): ReminderInput {
     throw new ApiError(400, 'UNSUPPORTED_TIMEZONE', `Táto integrácia momentálne používa iba ${DEFAULT_TIMEZONE}.`);
   }
 
+  const assigneeId = body.assignee_id == null ? null : asString(body.assignee_id, 'assignee_id', 36, 36).toLowerCase();
+  if (assigneeId && (!UUID_RE.test(assigneeId) || body.assignee != null)) {
+    throw new ApiError(400, 'INVALID_ASSIGNEE', 'Použi buď assignee, alebo assignee_id z kontextu skupiny.');
+  }
   return {
     request_id: requestId.toLowerCase(),
+    assignee_id: assigneeId,
     title: asString(body.title, 'title', 1, 180),
     notes: asNullableString(body.notes, 'notes', 10000),
     local_date: asString(body.local_date, 'local_date', 10, 10),
@@ -294,8 +306,8 @@ function mapLocalTimeError(error: LocalTimeError): ApiError {
   return new ApiError(status, error.code, error.message, error.details);
 }
 
-async function handleContext(client: IntegrationClient): Promise<Response> {
-  const { actor, partner } = await loadPairContext(supabaseAdmin, client.actor_id);
+export async function handleContext(client: IntegrationClient): Promise<Response> {
+  const { actor, partner, members } = await loadPairContext(supabaseAdmin, client.actor_id);
   const now = new Date();
   const localNow = formatInstantInZone(now, DEFAULT_TIMEZONE);
   return json(200, {
@@ -306,6 +318,9 @@ async function handleContext(client: IntegrationClient): Promise<Response> {
     timezone: DEFAULT_TIMEZONE,
     actor: { display_name: actor.display_name },
     partner: { display_name: partner.display_name },
+    members: members.map(member => ({ id: member.id, display_name: member.display_name,
+      is_self: member.id === actor.id, is_partner: member.id === partner.id })),
+    allowed_operations: client.allowed_operations,
     defaults: {
       priority: 1,
       pre_reminder_minutes: 0,
@@ -318,7 +333,7 @@ async function handleContext(client: IntegrationClient): Promise<Response> {
   });
 }
 
-async function handleCreate(request: Request, client: IntegrationClient): Promise<Response> {
+export async function handleCreate(request: Request, client: IntegrationClient): Promise<Response> {
   if (!client.allowed_operations?.includes('create_task')) {
     throw new ApiError(403, 'OPERATION_NOT_ALLOWED', 'Pripojenie nemá povolenie vytvárať úlohy.');
   }
@@ -331,8 +346,10 @@ async function handleCreate(request: Request, client: IntegrationClient): Promis
   }
 
   const input = parseReminder(raw);
-  const { actor, partner } = await loadPairContext(supabaseAdmin, client.actor_id);
-  const assignee = input.assignee === 'self' ? actor : partner;
+  const { actor, partner, members } = await loadPairContext(supabaseAdmin, client.actor_id);
+  const assignee = input.assignee_id ? members.find(member => member.id === input.assignee_id)
+    : input.assignee === 'self' ? actor : partner;
+  if (!assignee) throw new ApiError(400, 'INVALID_ASSIGNEE', 'Príjemca nie je členom vašej skupiny.');
 
   let resolvedTime;
   try {
@@ -397,7 +414,34 @@ async function handleCreate(request: Request, client: IntegrationClient): Promis
   });
 }
 
-Deno.serve(async (request) => {
+export async function handleReadTasks(url: URL, client: IntegrationClient, taskId: string | null): Promise<Response> {
+  if (!client.allowed_operations.includes('read_tasks')) {
+    throw new ApiError(403, 'OPERATION_NOT_ALLOWED', 'Pripojenie nemá povolené čítanie úloh.');
+  }
+  if (taskId !== null && !UUID_RE.test(taskId)) throw new ApiError(400, 'INVALID_TASK_ID', 'Neplatné ID úlohy.');
+  let filters;
+  try { filters = parseTaskFilters(url.searchParams); }
+  catch { throw new ApiError(400, 'INVALID_TASK_FILTER', 'Neplatné filtre vyhľadávania.'); }
+  if (taskId !== null && url.searchParams.size > 0) throw new ApiError(400, 'INVALID_TASK_FILTER', 'Detail úlohy nepodporuje filtre.');
+  const { data, error } = await supabaseAdmin.rpc('api_read_tasks_from_integration', {
+    p_client_id: client.id, p_actor_id: client.actor_id, p_task_id: taskId, ...filters,
+  });
+  if (error) {
+    if (error.message.includes('INTEGRATION_UNAUTHORIZED')) throw new ApiError(401, 'UNAUTHORIZED', 'Pripojenie už nie je aktívne.');
+    if (error.message.includes('INTEGRATION_OPERATION_NOT_ALLOWED')) throw new ApiError(403, 'OPERATION_NOT_ALLOWED', 'Čítanie úloh nie je povolené.');
+    if (error.message.includes('INVALID_')) throw new ApiError(400, 'INVALID_TASK_FILTER', 'Neplatné filtre vyhľadávania.');
+    throw new ApiError(500, 'READ_FAILED', 'Úlohy sa nepodarilo načítať.');
+  }
+  if (!Array.isArray(data)) throw new ApiError(500, 'READ_FAILED', 'Neplatná odpoveď servera.');
+  if (taskId !== null) {
+    if (!data.length) throw new ApiError(404, 'TASK_NOT_FOUND', 'Úloha neexistuje alebo k nej nemáte prístup.');
+    return json(200, { ok: true, task: data[0] });
+  }
+  return json(200, { ok: true, tasks: data, limit: filters.p_limit, offset: filters.p_offset,
+    next_offset: data.length === filters.p_limit ? filters.p_offset + data.length : null });
+}
+
+export async function handleActionRequest(request: Request): Promise<Response> {
   try {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, '');
@@ -408,11 +452,26 @@ Deno.serve(async (request) => {
 
     const client = await authenticate(request);
 
+    const reservePath = path.match(/\/tasks\/([^/]+)\/attachments$/);
+    if (request.method === 'POST' && reservePath) {
+      let body;
+      try { body = await request.json(); } catch { throw new ApiError(400, 'INVALID_JSON_BODY', 'Neplatné JSON telo.'); }
+      return json(200, await reserveAttachment(supabaseAdmin, client, reservePath[1], body));
+    }
+    const uploadPath = path.match(/\/attachment-uploads\/([^/]+)$/);
+    if (request.method === 'PUT' && uploadPath) return json(200, await uploadAttachment(supabaseAdmin, client, uploadPath[1], request));
+    const downloadPath = path.match(/\/tasks\/([^/]+)\/attachments\/([^/]+)$/);
+    if (request.method === 'GET' && downloadPath) return json(200, await attachmentDownload(supabaseAdmin, client, downloadPath[1], downloadPath[2]));
+
     if (request.method === 'GET' && path.endsWith('/context')) return await handleContext(client);
     if (request.method === 'POST' && path.endsWith('/reminders')) return await handleCreate(request, client);
+    if (request.method === 'GET' && path.endsWith('/tasks')) return await handleReadTasks(url, client, null);
+    const taskPath = path.match(/\/tasks\/([^/]+)$/);
+    if (request.method === 'GET' && taskPath) return await handleReadTasks(url, client, taskPath[1]);
 
     return json(404, { ok: false, error: { code: 'NOT_FOUND', message: 'Neznáma cesta.' } });
   } catch (error) {
+    if (error instanceof AttachmentError) return json(error.status, { ok: false, error: { code: error.code, message: 'Operácia s prílohou nebola dokončená.' } });
     if (error instanceof ApiError) {
       return json(error.status, {
         ok: false,
@@ -422,4 +481,5 @@ Deno.serve(async (request) => {
     console.error('Unhandled chatgpt-api error', error instanceof Error ? error.message : String(error));
     return json(500, { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Interná chyba integrácie.' } });
   }
-});
+}
+if (import.meta.main) Deno.serve(handleActionRequest);

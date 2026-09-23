@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="sk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Pripojiť Nezabudni</title>
+  <link rel="stylesheet" href="./consent.css">
+</head>
+<body>
+  <main>
+    <h1>Pripojiť Nezabudni</h1>
+    <p>Pripojenie povolí prístup k vášmu účtu. Samotné prihlásenie súhlas neudelí.</p>
+    <p id="message" role="status" aria-live="polite">Overujem požiadavku…</p>
+    <form id="login" hidden>
+      <label>E-mail <input name="email" type="email" autocomplete="username" required></label>
+      <label>Heslo <input name="password" type="password" autocomplete="current-password" required></label>
+      <button type="submit">Prihlásiť sa do Nezabudni</button>
+    </form>
+    <section id="consent" hidden>
+      <h2>Žiadosť o prístup</h2>
+      <p>Aplikácia: <strong id="client"></strong></p>
+      <p>Účet: <span id="account"></span></p>
+      <p>Návrat na: <span id="destination"></span></p>
+      <p>Požadované oprávnenia:</p>
+      <ul id="scopes"></ul>
+      <p>Povolením zároveň na najviac 180 dní povoľujete tejto integrácii:</p>
+      <ul>
+        <li>čítať úlohy a prílohy vašej spoločnej skupiny,</li>
+        <li>vytvárať úlohy pre jej členov,</li>
+        <li>pridávať obrázky a PDF k úlohám.</li>
+      </ul>
+      <p>Integrácia nesmie meniť ani mazať existujúce úlohy či používateľov. Prístup možno odvolať.</p>
+      <p>Konkrétny prístup k úlohám a prílohám navyše obmedzuje integračný server. Povolenie pripojenia samo osebe nevytvára úlohu.</p>
+      <button id="approve" type="button">Povoliť pripojenie</button>
+      <button id="deny" type="button">Odmietnuť</button>
+    </section>
+  </main>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

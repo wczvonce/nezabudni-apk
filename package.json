@@ -19,7 +19,10 @@
     "check:android": "node scripts/check-android-package.mjs",
     "audit:dependencies": "node tests/dependency-audit.test.mjs && node scripts/dependency-audit.mjs",
     "test:groups": "node tests/group-sql.test.mjs && node tests/group-ui.test.mjs",
-    "audit": "npm run test && npm run test:groups && npm run check:worker && npm run check:chatgpt-api && npm run check:android && npm run validate"
+    "test:oauth": "node tests/oauth-consent.test.mjs && node tests/integration-read.test.mjs && node tests/integration-http.test.mjs && node tests/attachment-policy.test.mjs",
+    "test:mcp": "deno test --node-modules-dir=none tests/mcp.test.ts",
+    "check:mcp": "deno check --node-modules-dir=none supabase/functions/nezabudni-mcp/index.ts",
+    "audit": "npm run test && npm run test:groups && npm run test:oauth && npm run test:mcp && npm run check:mcp && npm run check:worker && npm run check:chatgpt-api && npm run check:android && npm run validate"
   },
   "dependencies": {
     "@capacitor/android": "8.4.1",

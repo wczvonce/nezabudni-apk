@@ -1,0 +1,158 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { PGlite } from '@electric-sql/pglite';
+import { parseTaskFilters } from '../supabase/functions/chatgpt-api/task-filters.js';
+
+for (const input of ['limit=0','limit=101','offset=-1','status=oops','query=','assignee=oops','from=2026-01-01','to=not-time','limit=1&limit=2','unknown=x','from=2026-02-02T00:00:00Z&to=2026-01-01T00:00:00Z']) {
+  assert.throws(() => parseTaskFilters(new URLSearchParams(input)), /INVALID_/);
+}
+assert.equal(parseTaskFilters(new URLSearchParams('query=100%25')).p_query, '100%');
+for (const value of ['2026-02-30T00:00:00Z','2026-01-01T24:00:00Z']) {
+  assert.throws(() => parseTaskFilters(new URLSearchParams({from:value})), /INVALID_TASK_FILTER/);
+}
+const db = new PGlite();
+const q = (sql, args = []) => db.query(sql, args);
+const uuid = n => `${String(n).padStart(8,'0')}-0000-4000-8000-000000000000`;
+const A=uuid(1), B=uuid(2), C=uuid(3), P=uuid(4), OTHER=uuid(5), CLIENT=uuid(6), TASK=uuid(7), FOREIGN=uuid(8);
+const read = async (extra = {}) => {
+  const args = { client: CLIENT, actor: A, task: null, assignee: null, status: null, from: null, to: null, query: null, limit: 50, offset: 0, ...extra };
+  return (await q('select api_read_tasks_from_integration($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) as result', Object.values(args))).rows[0].result;
+};
+try {
+  await db.exec(`create role anon;create role authenticated;create role service_role;
+    create schema auth;create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz);
+    create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('app.user_id',true),'')::uuid$$;
+    create schema storage;create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
+    create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text,name text,owner_id text);
+    create function storage.foldername(name text) returns text[] language sql immutable as $$select string_to_array(name,'/')$$;`);
+  for (const file of ['001_schema.sql','004_deep_audit_fixes.sql','005_offline_absolute_times.sql','006_terminal_edit_guard.sql','007_reject_and_hide.sql','008_fix_null_pair_guard.sql','009_bug_hunt_2.sql','010_low_priority_fixes.sql','011_backend_capabilities.sql','012_chatgpt_action_integration.sql','013_group_invitations.sql']) {
+    await db.exec((await readFile(`supabase/migrations/${file}`,'utf8')).replace(/create extension if not exists pgcrypto;\s*/i,''));
+  }
+  await q(`insert into auth.users values($1,'a@example.test',now()),($2,'b@example.test',now()),($3,'c@example.test',now())`,[A,B,C]);
+  await q(`insert into profiles(id,display_name,email) values($1,'A','a@example.test'),($2,'B','b@example.test'),($3,'C','c@example.test')`,[A,B,C]);
+  await q(`insert into pairs(id,name) values($1,'Group'),($2,'Other')`,[P,OTHER]);
+  await q(`insert into pair_members(pair_id,user_id,role) values($1,$2,'owner'),($1,$3,'member'),($4,$5,'owner')`,[P,A,B,OTHER,C]);
+  await q(`insert into integration_clients(id,name,actor_id,token_hash) values($1,'Test integration',$2,$3)`,[CLIENT,A,'a'.repeat(64)]);
+  const original = (await q(`select pg_get_functiondef('public.api_create_task(uuid,uuid,uuid,text,text,timestamptz,text,integer,integer,text,text,boolean,integer,integer)'::regprocedure) as value`)).rows[0].value;
+  await db.exec(await readFile('supabase/migrations/014_integration_read_tasks.sql','utf8'));
+  assert.deepEqual((await q('select allowed_operations from integration_clients')).rows[0].allowed_operations,['create_task'],'Never broaden existing token permissions');
+  await assert.rejects(() => read(), /INTEGRATION_OPERATION_NOT_ALLOWED/);
+  await q(`update integration_clients set allowed_operations=array['create_task','read_tasks'] where id=$1`,[CLIENT]);
+  await q(`select set_config('app.user_id',$1,false)`,[A]);
+  await q(`select api_create_task($1,gen_random_uuid(),$2,'Synthetic invoice 100%', 'Synthetic notes', '2027-01-10T09:00:00Z','Europe/Bratislava',1,0,'none','after',true,60,10)`,[TASK,B]);
+  await q(`select set_config('app.user_id',$1,false)`,[C]);
+  await q(`select api_create_task($1,gen_random_uuid(),$2,'Foreign task',null,'2027-01-10T09:00:00Z','Europe/Bratislava',1,0,'none','after',false,60,10)`,[FOREIGN,C]);
+  let tasks = await read();
+  assert.equal(tasks.length,1);
+  assert.equal(tasks[0].id,TASK);
+  assert.equal(tasks[0].notes,'Synthetic notes');
+  assert.equal(tasks[0].local_time,'10:00');
+  assert.equal(tasks[0].local_date,'2027-01-10');
+  assert.equal(tasks[0].assigned_to.display_name,'B');
+  assert.equal(tasks[0].created_by.display_name,'A');
+  assert.equal(tasks[0].notify_creator_on_complete,true);
+  assert.equal(tasks[0].attachment_count,0);
+  assert.deepEqual(tasks[0].attachments,[]);
+  assert.deepEqual(await read({task:FOREIGN}),[],'No foreign task disclosure');
+  assert.deepEqual(await read({task:uuid(90)}),[],'Missing and foreign tasks indistinguishable');
+  assert.equal((await read({query:'invoice',from:'2027-01-10T00:00:00Z',to:'2027-01-11T00:00:00Z',status:'pending',assignee:B})).length,1);
+  assert.equal((await read({query:'100%'})).length,1);
+  assert.equal((await read({query:'%_%'})).length,0,'SQL wildcards treated literally');
+  assert.equal((await read({query:"' or true --"})).length,0);
+  assert.equal((await read({from:'2027-02-01T00:00:00Z'})).length,0);
+  assert.equal((await read({offset:1})).length,0);
+  await assert.rejects(() => read({assignee:C}),/INVALID_ASSIGNEE/);
+  await assert.rejects(() => read({actor:C}),/INTEGRATION_UNAUTHORIZED/);
+  await assert.rejects(() => read({limit:101}),/INVALID_TASK_FILTER/);
+  await q(`insert into task_attachments(task_id,pair_id,uploaded_by,storage_path,filename,mime_type,size_bytes) values($1,$2,$3,'synthetic/path','sample.pdf','application/pdf',12)`,[TASK,P,A]);
+  tasks=await read({task:TASK});
+  assert.equal(tasks[0].attachment_count,1);
+  assert.equal(tasks[0].attachments[0].filename,'sample.pdf');
+  assert.equal('storage_path' in tasks[0].attachments[0],false);
+  assert.equal(JSON.stringify(tasks).includes('@example.test'),false,'No email disclosure');
+  await q(`update integration_clients set active=false where id=$1`,[CLIENT]);
+  await assert.rejects(() => read(),/INTEGRATION_UNAUTHORIZED/);
+  await q(`update integration_clients set active=true, created_at=now()-interval '2 days', expires_at=now()-interval '1 day' where id=$1`,[CLIENT]);
+  await assert.rejects(() => read(),/INTEGRATION_UNAUTHORIZED/);
+  for (const role of ['anon','authenticated']) {
+    assert.equal((await q(`select has_function_privilege($1,'public.api_read_tasks_from_integration(uuid,uuid,uuid,uuid,text,timestamptz,timestamptz,text,integer,integer)','EXECUTE') as allowed`,[role])).rows[0].allowed,false);
+  }
+  assert.equal((await q('select get_backend_capabilities() as c')).rows[0].c.schema_version,14);
+  assert.equal((await q(`select pg_get_functiondef('public.api_create_task(uuid,uuid,uuid,text,text,timestamptz,text,integer,integer,text,text,boolean,integer,integer)'::regprocedure) as value`)).rows[0].value,original);
+  await db.exec(await readFile('supabase/migrations/015_integration_attachments.sql','utf8'));
+  await q(`update integration_clients set expires_at=now()+interval '10 days',allowed_operations=array['read_tasks','create_task'] where id=$1`,[CLIENT]);
+  const request=uuid(100);
+  const reserve=(task=TASK,filename='sample.pdf',req=request)=>q('select to_jsonb(api_reserve_integration_attachment($1,$2,$3,$4,$5,$6,$7,$8)) as u',[CLIENT,A,req,task,filename,'application/pdf',12,'b'.repeat(64)]);
+  await assert.rejects(()=>reserve(),/INTEGRATION_OPERATION_NOT_ALLOWED/);
+  await q(`update integration_clients set allowed_operations=array['read_tasks','create_task','upload_attachment'] where id=$1`,[CLIENT]);
+  await assert.rejects(()=>reserve(FOREIGN),/TASK_NOT_FOUND/);
+  await assert.rejects(()=>reserve(TASK,'../escape'),/INVALID_ATTACHMENT/);
+  const upload=(await reserve()).rows[0].u;
+  assert.equal(upload.storage_path,`${P}/${TASK}/${upload.attachment_id}`);
+  assert.equal(upload.completed_at,null);
+  assert.equal((await reserve()).rows[0].u.attachment_id,upload.attachment_id,'Retry reservation returns same ID');
+  assert.equal((await read({task:TASK}))[0].attachment_count,1,'Pending upload not visible in existing attachments');
+  await assert.rejects(()=>reserve(TASK,'changed.pdf'),/IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD/);
+  const finalize=()=>q('select to_jsonb(api_finalize_integration_attachment($1,$2,$3)) as a',[CLIENT,A,request]);
+  await assert.rejects(()=>finalize(),/UPLOAD_NOT_STORED/);
+  await q(`insert into storage.objects(bucket_id,name) values('task-attachments',$1)`,[upload.storage_path]);
+  const done=(await finalize()).rows[0].a;
+  assert.equal(done.id,upload.attachment_id);
+  assert.equal((await finalize()).rows[0].a.id,done.id);
+  assert.equal((await q('select count(*)::int as n from task_attachments where id=$1',[done.id])).rows[0].n,1);
+  assert.equal((await read({task:TASK}))[0].attachment_count,2);
+  assert.equal((await q('select to_jsonb(api_read_integration_attachment($1,$2,$3,$4)) as a',[CLIENT,A,TASK,done.id])).rows[0].a.id,done.id);
+  await assert.rejects(()=>q('select api_read_integration_attachment($1,$2,$3,$4)',[CLIENT,A,FOREIGN,done.id]),/ATTACHMENT_NOT_FOUND/);
+  const second=(await reserve(TASK,'second.pdf',uuid(101))).rows[0].u;
+  await q(`update integration_attachment_uploads set expires_at=now()-interval '1 second' where request_id=$1`,[uuid(101)]);
+  await assert.rejects(()=>reserve(TASK,'second.pdf',uuid(101)),/UPLOAD_EXPIRED/);
+  await assert.rejects(()=>q('select api_get_integration_upload($1,$2,$3)',[CLIENT,A,second.request_id]),/UPLOAD_EXPIRED/);
+  await q(`update integration_clients set allowed_operations=array['upload_attachment'] where id=$1`,[CLIENT]);
+  await assert.rejects(()=>q('select api_read_integration_attachment($1,$2,$3,$4)',[CLIENT,A,TASK,done.id]),/INTEGRATION_OPERATION_NOT_ALLOWED/);
+  for(const signature of ['api_reserve_integration_attachment(uuid,uuid,uuid,uuid,text,text,integer,text)','api_finalize_integration_attachment(uuid,uuid,uuid)','api_get_integration_upload(uuid,uuid,uuid)','api_read_integration_attachment(uuid,uuid,uuid,uuid)']) {
+    for(const role of ['anon','authenticated']) assert.equal((await q('select has_function_privilege($1,$2,\'EXECUTE\') as allowed',[role,`public.${signature}`])).rows[0].allowed,false);
+  }
+  assert.equal((await q('select get_backend_capabilities() as c')).rows[0].c.schema_version,15);
+  await db.exec(`create role authenticator; create role supabase_auth_admin;
+    create function auth.jwt() returns jsonb language sql stable as $$select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb$$;`);
+  await db.exec(await readFile('supabase/migrations/016_integration_oauth.sql','utf8'));
+  const oauthClient=uuid(200), resource='https://example.test/mcp';
+  await q(`insert into integration_oauth_apps(oauth_client_id,name,resource_uri) values($1,'Synthetic MCP',$2)`,[oauthClient,resource]);
+  await q(`select set_config('app.user_id',$1,false)`,[A]);
+  await q(`select set_config('request.jwt.claims','{}',false)`);
+  const approve=()=>q(`select approve_integration_oauth($1,array['create_task','read_tasks','upload_attachment']) as id`,[oauthClient]);
+  const grant=(await approve()).rows[0].id;
+  assert.equal((await approve()).rows[0].id,grant,'Reconnect reuses one integration record');
+  assert.equal((await q('select count(*)::int as n from integration_clients where oauth_client_id=$1',[oauthClient])).rows[0].n,1);
+  const ordinary={sub:A,role:'authenticated',aud:'authenticated',email:'a@example.test',custom:'preserved'};
+  const hook=async event=>(await q('select nezabudni_oauth_access_token_hook($1::jsonb) as h',[JSON.stringify(event)])).rows[0].h.claims;
+  assert.deepEqual(await hook({claims:ordinary,authentication_method:'password'}),ordinary);
+  assert.deepEqual(await hook({claims:ordinary,authentication_method:'token_refresh'}),ordinary);
+  const claims=await hook({claims:{...ordinary,client_id:oauthClient},authentication_method:'oauth_provider/authorization_code'});
+  assert.equal(claims.role,'nezabudni_mcp');
+  assert.equal(claims.aud,resource);
+  assert.equal(claims.integration_id,grant);
+  assert.equal(claims.scope,'openid create_task read_tasks upload_attachment');
+  assert.equal((await hook({claims:{...ordinary,client_id:oauthClient},authentication_method:'token_refresh'})).role,'nezabudni_mcp');
+  await assert.rejects(()=>hook({claims:{...ordinary,client_id:uuid(201)}}),/OAUTH_APP_NOT_ALLOWED/);
+  await assert.rejects(()=>hook({claims:ordinary,authentication_method:'oauth_provider/authorization_code'}),/OAUTH_CLIENT_REQUIRED/);
+  await q(`select set_config('request.jwt.claims',$1,false)`,[JSON.stringify({client_id:oauthClient})]);
+  await assert.rejects(()=>approve(),/FIRST_PARTY_LOGIN_REQUIRED/);
+  await q(`select set_config('request.jwt.claims','{}',false)`);
+  await q('select revoke_integration_oauth($1)',[oauthClient]);
+  await assert.rejects(()=>hook({claims:{...ordinary,client_id:oauthClient}}),/OAUTH_CONSENT_REQUIRED/);
+  await approve();
+  const originalRpc='public.api_create_task(uuid,uuid,uuid,text,text,timestamptz,text,integer,integer,text,text,boolean,integer,integer)';
+  assert.equal((await q('select has_function_privilege($1,$2,\'EXECUTE\') as allowed',['nezabudni_mcp',originalRpc])).rows[0].allowed,false);
+  assert.equal((await q("select pg_has_role('nezabudni_mcp','authenticated','MEMBER') as allowed")).rows[0].allowed,false);
+  await db.exec('set role nezabudni_mcp');
+  await assert.rejects(()=>q('select * from public.tasks'),/permission denied/);
+  await assert.rejects(()=>q('select * from public.integration_clients'),/permission denied/);
+  await assert.rejects(()=>approve(),/permission denied/);
+  await assert.rejects(()=>hook({claims:ordinary}),/permission denied/);
+  await db.exec('reset role');
+  assert.equal((await q('select get_backend_capabilities() as c')).rows[0].c.schema_version,16);
+  console.log('OAuth SQL: first-party claims preserved, isolated role/audience, consent, revocation, refresh and direct database access denial passed.');
+  console.log('Attachment SQL: scopes, foreign tasks, server paths, reservation/finalization retry, conflict, expiry and metadata publication passed.');
+  console.log('Integration read: scopes, expiry, revocation, group isolation, filters, metadata, local time and backwards compatibility passed.');
+} finally { await db.close(); }

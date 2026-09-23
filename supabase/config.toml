@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.chatgpt-api]
 verify_jwt = false
+
+[functions.nezabudni-mcp]
+verify_jwt = false

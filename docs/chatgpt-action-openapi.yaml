@@ -1,15 +1,71 @@
 openapi: 3.1.0
 info:
   title: Nezabudni Action API
-  version: 1.1.0
+  version: 1.2.0
   description: >-
-    Súkromné API na načítanie kontextu dvojice a bezpečné vytvorenie úlohy
-    v aplikácii Nezabudni. API nevystavuje zoznam úloh ani administračné dáta.
+    Súkromné API na načítanie kontextu skupiny, vytvorenie a overenie úloh.
+    Čítanie vyžaduje samostatné oprávnenie read_tasks. Nevystavuje administračné dáta.
 servers:
   - url: https://ofwouqpqzcpjnigcgygz.supabase.co/functions/v1/chatgpt-api
 security:
   - NezabudniActionKey: []
 paths:
+  /tasks:
+    get:
+      operationId: searchNezabudniTasks
+      summary: Vyhľadá úlohy iba vo vašej skupine
+      parameters:
+        - { name: assignee, in: query, schema: { type: string, format: uuid }, description: ID člena z kontextu }
+        - { name: status, in: query, schema: { type: string, enum: [pending, completed, cancelled, rejected] } }
+        - { name: from, in: query, schema: { type: string, format: date-time }, description: Vrátane dolnej hranice s UTC offsetom }
+        - { name: to, in: query, schema: { type: string, format: date-time }, description: Vrátane hornej hranice s UTC offsetom }
+        - { name: query, in: query, schema: { type: string, minLength: 1, maxLength: 180 }, description: Doslovná časť názvu bez ohľadu na veľkosť písmen }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, maximum: 10000, default: 0 } }
+      responses:
+        '200':
+          description: Výsledky; pri next_offset pokračuj ďalšou stranou
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  tasks: { type: array, items: { $ref: '#/components/schemas/ReadTask' } }
+                  limit: { type: integer }
+                  offset: { type: integer }
+                  next_offset: { type: [integer, 'null'] }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /tasks/{task_id}:
+    get:
+      operationId: getNezabudniTask
+      summary: Znova načíta úlohu a metadáta príloh zo servera
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Overená úloha
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  task: { $ref: '#/components/schemas/ReadTask' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Úloha neexistuje alebo k nej nemáte prístup
   /context:
     get:
       operationId: getNezabudniContext
@@ -66,6 +122,38 @@ components:
       name: x-nezabudni-action-key
       description: Revokovateľný náhodný token uložený iba v nastavení súkromného GPT.
   schemas:
+    ReadTask:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        notes: { type: [string, 'null'] }
+        due_at: { type: string, format: date-time }
+        timezone: { type: string }
+        local_date: { type: string, format: date }
+        local_time: { type: string }
+        status: { type: string }
+        notify_creator_on_complete: { type: boolean }
+        assigned_to: { $ref: '#/components/schemas/Member' }
+        created_by: { $ref: '#/components/schemas/Member' }
+        attachment_count: { type: integer }
+        attachments:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              filename: { type: string }
+              mime_type: { type: string }
+              size_bytes: { type: integer }
+              created_at: { type: string, format: date-time }
+    Member:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        display_name: { type: string }
+        is_self: { type: boolean }
+        is_partner: { type: boolean }
     Person:
       type: object
       additionalProperties: false
@@ -127,6 +215,12 @@ components:
           $ref: '#/components/schemas/Person'
         partner:
           $ref: '#/components/schemas/Person'
+        members:
+          type: array
+          items: { $ref: '#/components/schemas/Member' }
+        allowed_operations:
+          type: array
+          items: { type: string }
         defaults:
           $ref: '#/components/schemas/Defaults'
     CreateReminderRequest:
@@ -138,7 +232,6 @@ components:
         - local_date
         - local_time
         - timezone
-        - assignee
         - notify_creator_on_complete
       properties:
         request_id:
@@ -175,6 +268,10 @@ components:
           type: string
           enum: [self, partner]
           description: self je používateľ konektora; partner je osoba z getNezabudniContext.
+        assignee_id:
+          type: string
+          format: uuid
+          description: Konkrétny člen z kontextu. Neposielaj spolu s assignee. Ak chýbajú oba údaje, príjemcom je používateľ konektora.
         priority:
           type: integer
           minimum: 1
