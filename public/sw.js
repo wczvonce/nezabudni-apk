@@ -37,6 +37,8 @@ async function putWithTrim(request, response) {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  // Authentication pages must never replace the cached application shell.
+  if (new URL(event.request.url).origin === self.location.origin && new URL(event.request.url).pathname.startsWith('/oauth/')) return;
   if (event.request.mode === 'navigate') {
     event.respondWith(fetch(event.request).then((response) => {
       // Chybovú stránku (500, captive portál…) NIKDY neukladaj ako app shell –

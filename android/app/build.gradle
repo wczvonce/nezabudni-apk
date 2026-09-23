@@ -7,8 +7,8 @@ android {
         applicationId "sk.povraznik.nezabudni.test"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 16
-        versionName "1.0.15"
+        versionCode 18
+        versionName "1.0.17"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -21,6 +21,9 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+    }
+    sourceSets {
+        androidTest.assets.srcDirs += ['build/generated/reviewTestAssets']
     }
 }
 
@@ -43,6 +46,16 @@ dependencies {
 }
 
 apply from: 'capacitor.build.gradle'
+
+tasks.register('prepareReviewTestAssets', Exec) {
+    workingDir rootProject.projectDir.parentFile
+    commandLine 'node', 'scripts/prepare-android-tests.mjs'
+    inputs.files(fileTree('../../src'), file('../../index.html'), fileTree('../../tests'), file('../../supabase/functions/chatgpt-api/partner.js'), file('../../scripts/prepare-android-tests.mjs'))
+    outputs.dir(layout.buildDirectory.dir('generated/reviewTestAssets'))
+}
+tasks.configureEach { task ->
+    if (task.name == 'mergeDebugAndroidTestAssets') task.dependsOn('prepareReviewTestAssets')
+}
 
 try {
     def servicesJSON = file('google-services.json')

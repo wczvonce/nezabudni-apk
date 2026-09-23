@@ -2,6 +2,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { withAbortTimeout, TimeoutError } from '../src/lib/async.js';
 import { classifyStartupError } from '../src/lib/startup.js';
+import { readBackendSchema } from '../src/lib/backend-capabilities.js';
+
+assert.equal(await readBackendSchema({rpc:()=>({abortSignal:()=>Promise.resolve({data:{schema_version:12},error:null})})}),12);
+await assert.rejects(readBackendSchema({rpc:()=>({abortSignal:()=>new Promise(()=>{})})},20), {code:'TIMEOUT'});
+await assert.rejects(readBackendSchema({rpc:()=>({abortSignal:()=>Promise.resolve({data:null,error:new Error('offline')})})}), /offline/);
 
 // ── withAbortTimeout ──────────────────────────────────────────────
 // Normálny výsledok prejde.

@@ -31,6 +31,7 @@ import { platform } from '../lib/platform.js';
 import { CONFIG } from '../config.js';
 import { withAbortTimeout } from '../lib/async.js';
 import { localAlarmAllowed } from '../lib/reminders.js';
+import { bindGroupUi, openGroupDialog, closeGroupDialog } from './group-ui.js';
 
 const SYNC_STEP_TIMEOUT_MS = 20_000;
 const dom = {};
@@ -88,6 +89,7 @@ function deviceTimezone() {
 }
 
 export function bindUi() {
+  bindGroupUi(render);
   Object.assign(dom, {
     loading: $('loadingScreen'), auth: $('authScreen'), app: $('app'), offline: $('offlineBanner'),
     main: $('main'), tabs: $('tabs'), dateLine: $('dateLine'), settingsBtn: $('settingsBtn'), addTaskBtn: $('addTaskBtn'),
@@ -167,7 +169,7 @@ function renderTabs() {
   const tabs = [
     ['today', 'Dnes', tasks.filter((t) => t.status === 'pending' && isToday(effectiveDue(t))).length],
     ['mine', 'Moje', tasks.filter((t) => t.status === 'pending' && t.assigned_to === state.user.id).length],
-    ['partner', partner?.display_name || 'Partner', tasks.filter((t) => t.status === 'pending' && t.assigned_to === partner?.id).length],
+    ...state.members.filter(m=>m.id!==state.user.id).map(m=>[m.id===partner?.id?'partner':`member:${m.id}`,m.display_name,tasks.filter(t=>t.status==='pending' && t.assigned_to===m.id).length]),
     ['missed', 'Zmeškané', tasks.filter(isOverdue).length],
     ['all', 'Všetky', tasks.filter((t) => t.status === 'pending').length],
     ['done', 'Hotové', tasks.filter((t) => t.status === 'completed').length],
@@ -188,6 +190,7 @@ function filteredTasks() {
     done: (t) => t.status === 'completed',
     rejected: (t) => t.status === 'rejected',
   };
+  if(state.activeTab.startsWith('member:')) filters[state.activeTab]=t=>t.status==='pending' && t.assigned_to===state.activeTab.slice(7);
   return tasks.filter(filters[state.activeTab] || filters.today).sort((a, b) => {
     // Hotové/odmietnuté: najnovšie hore (podľa času splnenia / poslednej zmeny),
     // nie podľa termínu — inak by boli najstaršie úlohy navrchu.
@@ -304,12 +307,14 @@ function renderSettings() {
   ${state.failedOutboxCount ? `<div class="settings-group"><h3>Nevyriešené offline zmeny</h3><div class="notice">${state.failedOutboxCount} zmien sa nepodarilo bezpečne zlúčiť s cloudom. Môžeš ich skúsiť znova alebo zahodiť a načítať aktuálny stav zo servera.</div><button class="secondary-btn" data-setting-action="retry-outbox">Skúsiť znova</button><button class="logout-btn" style="margin-top:9px" data-setting-action="discard-outbox">Zahodiť nevyriešené zmeny</button></div>` : ''}
   ${platform.isNative ? '' : `<div class="notice">Upozornenia fungujú aj vo webovej verzii. Na iPhone: pridaj appku na plochu (Safari → Zdieľať → Pridať na plochu), otvor ju z plochy a klikni „Zapnúť upozornenia".</div>`}
   <div class="settings-group"><button class="logout-btn" data-setting-action="logout">Odhlásiť sa</button></div>`;
+  dom.main.insertAdjacentHTML('afterbegin','<div class="settings-group"><button class="secondary-btn" data-setting-action="members">Ľudia — pridať človeka / obnoviť členov</button></div>');
 }
 
 async function handleSettingAction(action) {
   if (settingActionBusy) return;
   settingActionBusy = true;
   try {
+    if (action === 'members') { await openGroupDialog(); return; }
     if (action === 'permission') {
       const result = await requestNotificationPermission();
       if (!result.accepted || !result.subscriptionId) throw new Error('Upozornenia neboli povolené alebo sa nevytvorila push subscription.');
@@ -534,7 +539,7 @@ export async function syncNow(showToast = false) {
 function checkDueAlarm() {
   const state = getState(); if (!state.user || alarmTask) return;
   // Issue 8: keď je otvorený detail úlohy, in-app budík nevyskakuj (zabráni dvojici).
-  if (dom.sheet?.classList.contains('show')) return;
+  if (dom.sheet?.classList.contains('show') || !$('groupDialog').hidden) return;
   const now = Date.now();
   const task = state.tasks.find((t) => {
     const alarmKey = `${t.id}:${t.version}:${effectiveDue(t)}`;
@@ -582,6 +587,20 @@ function showAlarmForTask(task) {
 function closeAlarm() { dom.alarmScrim.classList.remove('show'); alarmTask = null; }
 async function handleAlarmAction(action, minutes) { if (!alarmTask) return; const id = alarmTask.id; closeAlarm(); await mutateTask(action, id, minutes); }
 
+export function showForegroundReminder(taskId, kind) {
+  if (!['task_due', 'task_repeat'].includes(kind)) return false;
+  const state = getState();
+  if (!state.user || document.visibilityState === 'hidden' || dom.sheet?.classList.contains('show') || !$('groupDialog').hidden) return false;
+  const task = state.tasks.find((t) => t.id === taskId);
+  if (!task || task.status !== 'pending' || task.deleted_at || task.acknowledged_at || task.assigned_to !== state.user.id || dueMs(task) > Date.now()) return false;
+  if (alarmTask) return alarmTask.id === task.id;
+  // This is the replacement for an already delivered server reminder, not
+  // an additional periodic attempt. Its server counter may already equal max.
+  markAlarmShown(task);
+  showAlarmForTask(task);
+  return true;
+}
+
 export function openTaskFromNotification(taskId) {
   if (!taskId) return;
   if (!getState().user) {
@@ -615,6 +634,7 @@ export function processPendingNotification() {
 }
 
 export function resetTransientUi() {
+  closeGroupDialog();
   selectedFiles = [];
   alarmTask = null;
   pendingNotificationTaskId = null;

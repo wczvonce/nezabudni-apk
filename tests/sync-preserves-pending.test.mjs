@@ -122,6 +122,23 @@ assert.ok(!ok2.some((t) => t.id === hiddenT.id),
   'A2: pri zlyhaní task_hidden sa skrytá úloha VRÁTILA do zoznamu');
 assert.ok(ok2.some((t) => t.id === visibleT.id), 'Viditeľná úloha musí ostať');
 
+// Several local revisions must not outrank a real server completion.
+const conflictTask = serverTask('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee');
+srv.tasks = [conflictTask];
+srv.hiddenError = null;
+await fetchTasks();
+online = false;
+const firstEdit = await updateTask(conflictTask, { ...conflictTask, title: 'Offline one' });
+await updateTask(firstEdit.task, { ...firstEdit.task, title: 'Offline two' });
+online = true;
+srv.tasks = [{ ...conflictTask, status: 'completed', version: 2, completed_at: new Date().toISOString() }];
+srv.rpcError = { message: 'TASK_CONFLICT' };
+await flushOutbox();
+const afterConflict = await fetchTasks();
+assert.equal(afterConflict.find(t => t.id === conflictTask.id)?.status, 'completed');
+assert.equal(afterConflict.find(t => t.id === conflictTask.id)?.version, 2);
+const { failedOutboxItems } = await import('../src/services/task-service.js');
+assert.equal((await failedOutboxItems()).filter(i => i.payload.p_task_id === conflictTask.id).length, 2, 'Konfliktné payloady sa nesmú stratiť');
 await closeTaskService();
 console.log('SYNC PRESERVES PENDING OK');
 process.exit(0);

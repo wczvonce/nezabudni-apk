@@ -2,3 +2,9 @@ project_id = "nezabudni-v19"
 
 [functions.push-worker]
 verify_jwt = false
+
+[functions.chatgpt-api]
+verify_jwt = false
+
+[functions.nezabudni-mcp]
+verify_jwt = false

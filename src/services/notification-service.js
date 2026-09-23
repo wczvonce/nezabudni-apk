@@ -48,21 +48,23 @@ function handleSubscriptionChange(event) {
   }
 }
 
-// Issue 8: v popredí sa potláča natívna notifikácia LEN pre pripomienky —
-// tie má appka ako vlastný in-app budík a dve upozornenia naraz by boli
-// otravné. Správy „partner splnil / nová úloha" ale žiadny in-app budík
-// nemajú, takže musia PÍPNUŤ aj s otvorenou appkou (Ivan si pri otvorenej
-// appke nevšimol splnenie úlohy — 3-sekundový toast nestačí).
-export function shouldDisplayInForeground(kind) {
-  return !['task_pre', 'task_due', 'task_repeat'].includes(kind);
+// Foreground reminders retain their native alert unless a visible in-app
+// replacement has been confirmed. Completion/assignment/pre-reminders always
+// retain their native alert; an editor or missing cache cannot swallow them.
+export function shouldDisplayInForeground(kind, replacementShown = false) {
+  return !['task_due', 'task_repeat'].includes(kind) || !replacementShown;
 }
 
-function handleForegroundWillDisplay(event) {
+export function handleForegroundWillDisplay(event, handler = clickHandler) {
   const notification = event?.getNotification?.() ?? event?.notification;
   const data = notification?.additionalData || {};
-  if (shouldDisplayInForeground(data.kind)) return; // nechaj systém normálne zobraziť + pípnuť
-  event?.preventDefault?.();
-  if (data.task_id) clickHandler?.({ taskId: data.task_id, action: 'foreground', kind: data.kind || null });
+  // Suppress only AFTER the UI synchronously confirms a visible replacement.
+  // Missing task, an open editor or a pre-reminder must retain the native alert.
+  let replacementShown = false;
+  try {
+    if (data.task_id) replacementShown = handler?.({ taskId: data.task_id, action: 'foreground', kind: data.kind || null }) === true;
+  } catch (error) { console.warn('Foreground reminder fallback', error?.message); }
+  if (!shouldDisplayInForeground(data.kind, replacementShown)) event?.preventDefault?.();
 }
 
 // Web SDK sa načítava z CDN až keď je potrebné (na natívnej platforme nikdy).

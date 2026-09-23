@@ -126,33 +126,40 @@ export async function fetchTasks(signal) {
   const visible = (data || []).filter((t) => !hidden.has(t.id));
   // Issue 9: dobehnuté po timeoute? Nezapisuj – novší sync už mohol uložiť čerstvý stav.
   if (signal?.aborted) throw operationAborted();
-  // MERGE VRSTVA: úlohy s ČAKAJÚCOU offline mutáciou sa nesmú prepísať starým
-  // serverovým stavom (server ešte mutáciu nevidel — flush zlyhal na 429/500/
-  // timeoute a mutácia čaká v outboxe). Bez tohto by optimistická zmena
-  // zmizla z UI a používateľ by ju vytvoril duplicitne. Lokálna (optimistická)
-  // verzia má version = serverová_bázová + 1: ak server stále hlási staršiu
-  // verziu (alebo úlohu nepozná), platí lokálna; ak server medzitým dostal
-  // novšiu (partner), platí serverová a konflikt vyrieši flush (TASK_CONFLICT).
-  // Aj 'failed' položky: kým používateľ nerozhodne (Skúsiť znova / Zahodiť),
-  // jeho zmena musí ostať viditeľná — inak by banner hovoril o zmene,
-  // ktorú v zozname nevidí.
+  // Compare the SERVER revision on which edits were based, never the locally
+  // incremented revision: several offline edits are not newer server data.
+  // Conflicting payloads remain in the outbox for explicit resolution.
   const pendingItems = [...await snapshot.db.outboxItems(), ...await snapshot.db.failedOutboxItems()];
   const merged = [...visible];
   if (pendingItems.length) {
     const cachedById = new Map((await snapshot.db.getTasks()).map((t) => [t.id, t]));
     const byId = new Map(merged.map((t) => [t.id, t]));
+    const grouped = new Map();
     for (const item of pendingItems) {
       const taskId = item.payload?.p_id || item.payload?.p_task_id;
-      const local = taskId ? cachedById.get(taskId) : null;
-      if (!local) continue;
+      if (!taskId) continue;
+      if (!grouped.has(taskId)) grouped.set(taskId, []);
+      grouped.get(taskId).push(item);
+    }
+    for (const [taskId, items] of grouped) {
+      const local = cachedById.get(taskId);
+      if (!local || hidden.has(taskId)) continue;
       const server = byId.get(taskId);
-      if (!server || Number(local.version) > Number(server.version)) {
+      if (items.some((item) => /TASK_CONFLICT|TASK_NOT_FOUND|TASK_NOT_PENDING|FORBIDDEN/.test(item.last_error || ''))) continue;
+      if (server && (server.status !== 'pending' || server.deleted_at || server.acknowledged_at)) continue;
+      const bases = items.map((item) => item.payload?.p_expected_version ?? item.base_version)
+        .filter((value) => value != null && Number.isFinite(Number(value))).map(Number);
+      const unchangedServer = server && bases.length && Number(server.version) <= Math.min(...bases);
+      const pendingCreate = !server && items.some((item) => item.action === 'create' && item.status !== 'failed');
+      if (unchangedServer || pendingCreate) {
         byId.set(taskId, local);
       }
     }
     merged.length = 0;
     merged.push(...byId.values());
   }
+  if (signal?.aborted) throw operationAborted();
+  assertCurrent(snapshot);
   await snapshot.db.replaceTasks(merged);
   assertCurrent(snapshot);
   return merged;
@@ -183,6 +190,7 @@ async function queueMutation(action, payload, optimisticTask, snapshot) {
     mutation_id: mutationId,
     action,
     payload,
+    base_version: optimisticTask ? Math.max(0, Number(optimisticTask.version) - 1) : null,
     created_at: new Date().toISOString(),
     attempts: 0,
     status: 'pending',

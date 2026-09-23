@@ -4,10 +4,11 @@ export async function loadIdentity(userId) {
   const sb = requireSupabase();
   const { data: membership, error: membershipError } = await sb
     .from('pair_members')
-    .select('pair_id')
+    .select('pair_id,role')
     .eq('user_id', userId)
-    .single();
+    .maybeSingle();
   if (membershipError) throw membershipError;
+  if (!membership) { const error = new Error('Účet zatiaľ nemá skupinu.'); error.code='NO_MEMBERSHIP'; throw error; }
 
   const [{ data: pair, error: pairError }, { data: profile, error: profileError }, { data: memberRows, error: membersError }] = await Promise.all([
     sb.from('pairs').select('id,name').eq('id', membership.pair_id).single(),
@@ -27,5 +28,5 @@ export async function loadIdentity(userId) {
 
   const order = new Map(ids.map((id, index) => [id, index]));
   members.sort((a, b) => order.get(a.id) - order.get(b.id));
-  return { pair, profile, members };
+  return { pair, profile, members, membershipRole: membership.role };
 }

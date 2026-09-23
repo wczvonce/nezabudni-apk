@@ -1,0 +1,9 @@
+:root { color-scheme: light dark; font: 17px/1.5 system-ui, sans-serif; }
+body { margin: 0; padding: 24px; background: light-dark(#f3f5f8, #151921); }
+main { max-width: 540px; margin: 30px auto; padding: 28px; border-radius: 18px; background: light-dark(white, #222936); }
+label { display: block; margin: 16px 0; }
+input { display: block; box-sizing: border-box; width: 100%; padding: 12px; font: inherit; }
+button { padding: 12px 18px; margin: 8px 8px 8px 0; font: inherit; cursor: pointer; }
+button:disabled { opacity: .55; cursor: wait; }
+#destination { overflow-wrap: anywhere; }
+[hidden] { display: none !important; }

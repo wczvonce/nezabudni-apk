@@ -1,7 +1,7 @@
 {
   "name": "nezabudni-v19",
   "private": true,
-  "version": "0.2.12",
+  "version": "0.2.14",
   "type": "module",
   "description": "Nezabudni testovacia – spoločné pripomienky pre Ivana a Dominiku",
   "scripts": {
@@ -11,11 +11,18 @@
     "cap:sync": "npx cap sync",
     "cap:android": "npx cap open android",
     "cap:ios": "npx cap open ios",
+    "chatgpt:token": "node scripts/create-chatgpt-token.mjs",
     "validate": "node scripts/validate.mjs && npm run build",
-    "test": "node tests/public-config.test.mjs && node tests/auth-deadlock.test.mjs && node tests/startup-resilience.test.mjs && node tests/init-single-flight.test.mjs && node tests/account-isolation.test.mjs && node tests/sql-migration.test.mjs && node tests/sql-behavior.test.mjs && node tests/null-pair-guard.test.mjs && node tests/bug-hunt-2.test.mjs && node tests/recurrence-safety.test.mjs && node tests/edit-reschedule.test.mjs && node tests/offline-snooze-absolute.test.mjs && node tests/terminal-edit-guard.test.mjs && node tests/reject-and-hide.test.mjs && node tests/task-service.test.mjs && node tests/ui-alarm.test.mjs && node tests/done-tab-sort.test.mjs && node tests/notify-flag-preserved.test.mjs && node tests/notification-opens-alarm.test.mjs && node tests/sync-preserves-pending.test.mjs && node tests/reminder-limits.test.mjs && node tests/worker-static.test.mjs && node tests/android-package.test.mjs",
+    "test": "node tests/public-config.test.mjs && node tests/auth-deadlock.test.mjs && node tests/startup-resilience.test.mjs && node tests/init-single-flight.test.mjs && node tests/account-isolation.test.mjs && node tests/sql-migration.test.mjs && node tests/sql-behavior.test.mjs && node tests/null-pair-guard.test.mjs && node tests/bug-hunt-2.test.mjs && node tests/recurrence-safety.test.mjs && node tests/edit-reschedule.test.mjs && node tests/offline-snooze-absolute.test.mjs && node tests/terminal-edit-guard.test.mjs && node tests/reject-and-hide.test.mjs && node tests/task-service.test.mjs && node tests/ui-alarm.test.mjs && node tests/done-tab-sort.test.mjs && node tests/notify-flag-preserved.test.mjs && node tests/notification-opens-alarm.test.mjs && node tests/sync-preserves-pending.test.mjs && node tests/reminder-limits.test.mjs && node tests/chatgpt-timezone.test.mjs && node tests/chatgpt-integration-static.test.mjs && node tests/chatgpt-integration-sql.test.mjs && node tests/worker-static.test.mjs && node tests/android-package.test.mjs",
     "check:worker": "node scripts/check-worker.mjs",
+    "check:chatgpt-api": "deno check supabase/functions/chatgpt-api/index.ts",
     "check:android": "node scripts/check-android-package.mjs",
-    "audit": "npm run test && npm run check:worker && npm run check:android && npm run validate"
+    "audit:dependencies": "node tests/dependency-audit.test.mjs && node scripts/dependency-audit.mjs",
+    "test:groups": "node tests/group-sql.test.mjs && node tests/group-ui.test.mjs",
+    "test:oauth": "node tests/oauth-consent.test.mjs && node tests/password-recovery.test.mjs && node tests/integration-read.test.mjs && node tests/integration-http.test.mjs && node tests/attachment-policy.test.mjs",
+    "test:mcp": "deno test --node-modules-dir=none tests/mcp.test.ts",
+    "check:mcp": "deno check --node-modules-dir=none supabase/functions/nezabudni-mcp/index.ts",
+    "audit": "npm run test && npm run test:groups && npm run test:oauth && npm run test:mcp && npm run check:mcp && npm run check:worker && npm run check:chatgpt-api && npm run check:android && npm run validate"
   },
   "dependencies": {
     "@capacitor/android": "8.4.1",
@@ -32,5 +39,13 @@
     "jsdom": "^29.1.1",
     "typescript": "^6.0.3",
     "vite": "8.0.16"
+  },
+  "overrides": {
+    "tar": "7.5.22",
+    "brace-expansion": "5.0.12",
+    "@xmldom/xmldom": "0.9.12",
+    "nanoid": "3.3.19",
+    "postcss": "8.5.28",
+    "undici": "7.29.1"
   }
 }
