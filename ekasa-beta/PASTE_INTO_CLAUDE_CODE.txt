@@ -1,0 +1,16 @@
+Prečítaj celý CLAUDE.md a vykonaj ho od začiatku do konca.
+
+Máš plnú technickú autonómiu. Najprv vytvor nový súkromný GitHub repozitár wczvonce/ekasa-skener-mobile a prenes doň čistý eKasa projekt. Potom oprav, refaktoruj alebo prepíš všetko, čo je potrebné, aby vznikla reálne fungujúca Android aplikácia pre Samsung.
+
+Neskonči pri analýze, pri prvom zlyhanom endpointe ani pri vete „malo by to fungovať“. Aktívne preskúmaj aktuálny verejný tok oficiálnej služby Over doklad, použi DevTools/Playwright, backend/proxy alebo inú legitímnu architektúru podľa reálnych testov. Spusti unit testy, lint, live single-receipt smoke test, zostav a over podpis APK. Ak je dostupný telefón cez ADB, APK nainštaluj, spusti, sleduj logcat a oprav chyby.
+
+Povinný finálny výsledok:
+- nový repozitár wczvonce/ekasa-skener-mobile,
+- dist/eKasa-Skener-BETA.apk,
+- dist/eKasa-Skener-BETA.apk.sha256,
+- GitHub Actions artifact,
+- beta GitHub Release, ak máš oprávnenia,
+- README_IVAN.md s jednoduchou inštaláciou na Samsung,
+- docs/FINAL_TEST_REPORT.md so skutočnými príkazmi a výsledkami.
+
+Všetky bežné technické rozhodnutia urob sám. Používateľa vyruš iba vtedy, keď potrebuje vykonať externé prihlásenie, pripojiť fyzický telefón alebo poskytnúť reálny bloček na live test.
