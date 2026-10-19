@@ -1,3 +1,4 @@
+import { toolErrorResult } from './errors.js';
 import { Server } from 'npm:@modelcontextprotocol/sdk@1.30.0/server/index.js';
 import { WebStandardStreamableHTTPServerTransport } from 'npm:@modelcontextprotocol/sdk@1.30.0/server/webStandardStreamableHttp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolRequest } from 'npm:@modelcontextprotocol/sdk@1.30.0/types.js';
@@ -15,9 +16,8 @@ export async function serveMcp(request: Request,client: IntegrationClient,invoke
       const result=await invoke(params.name,args);
       return {content:[{type:'text' as const,text:JSON.stringify(result)}],structuredContent:result,isError:result.ok===false};
     } catch(error) {
-      const known=['TOOL_NOT_ALLOWED','INVALID_ARGUMENTS'];
-      const code=error instanceof Error && known.includes(error.message)?error.message:'OPERATION_FAILED';
-      return {content:[{type:'text' as const,text:JSON.stringify({ok:false,error:{code,message:'Operácia nebola dokončená. Neoznamuj úspech.'}})}],isError:true};
+      const result=toolErrorResult(error);
+      return {content:[{type:'text' as const,text:JSON.stringify(result)}],structuredContent:result,isError:true};
     }
   });
   const transport=new WebStandardStreamableHTTPServerTransport({sessionIdGenerator:undefined,enableJsonResponse:true});
