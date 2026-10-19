@@ -1,3 +1,5 @@
+import './mcp-file-hosts.test.mjs';
+import './mcp-errors.test.mjs';
 import assert from 'node:assert/strict';
 import { generateKeyPair, SignJWT } from 'npm:jose@6.2.12';
 import { tokenVerifier, authenticateMcp } from '../supabase/functions/nezabudni-mcp/auth.ts';
