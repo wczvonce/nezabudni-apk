@@ -27,4 +27,7 @@ assert.match(worker, /p_limit:\s*25/, 'bounded batch (claim limit)');
 assert.match(worker, /WORKER_DEADLINE_MS/, 'execution deadline');
 assert.match(worker, /deadlineReached = true; break/, 'deadline zastaví branie nových jobov');
 assert.match(worker, /rpc\('requeue_unfinished_jobs', \{ p_job_ids: claimedIds \}\)/, 'nedokončené joby sa vrátia do fronty bez spálenia attempt_count');
+// 018: push pri odpovedi na úlohu povie, kto ju posunul (potrebuje created_by + parent_task_id).
+assert.match(worker, /select\('[^']*created_by[^']*parent_task_id[^']*'\)/, 'loadTask musí načítať created_by a parent_task_id');
+assert.match(worker, /job\.kind === 'task_assigned' && task\.parent_task_id/, 'posunutá úloha má vlastný text pushu');
 console.log('WORKER STATIC OK');

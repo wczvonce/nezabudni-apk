@@ -100,6 +100,24 @@ main{flex:1;padding:8px 16px 140px;overflow-y:auto}
 .att-open .att-dl{color:var(--txt-dim);font-size:15px;padding:0 4px}
 .link-btn:active{color:#ff7a6b}
 .reject-reason{color:#ff7a6b}
+/* 018: odpoveď na úlohu – posunuté úlohy, štítok pokračovania a genéza v detaile */
+.card.s-handed::before{background:var(--snooze)}
+.card.s-handed .c-title{opacity:.7}
+.chip.reply{background:rgba(96,165,250,.14);color:#93c5fd}
+.handoff-line{color:#93c5fd}
+.link-btn + .link-btn{margin-left:14px}
+.thread{background:var(--card2);border:1px solid var(--line);border-radius:14px;padding:12px 13px;margin-bottom:16px}
+.thread h3{font-size:13px;font-weight:700;color:var(--txt-dim);text-transform:uppercase;letter-spacing:.04em;margin:0 0 8px}
+.thread ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.thread-step{border-left:3px solid var(--line);padding-left:10px}
+.thread-step.current{border-left-color:var(--accent)}
+.ts-head{font-size:12px;color:var(--txt-dim)}
+.ts-here{color:var(--accent);font-weight:700}
+.ts-title{font-size:14px;font-weight:600;margin-top:2px;word-break:break-word}
+.ts-note{font-size:13px;margin-top:3px;white-space:pre-wrap;word-break:break-word}
+.ts-status{font-size:12px;color:var(--txt-dim);margin-top:4px}
+.thread .att-item{margin-top:6px;padding:7px 9px}
+.thread-next{font-size:12px;color:var(--accent);margin:10px 0 0;font-weight:600}
 
 .empty{text-align:center;padding:70px 30px;color:var(--txt-dim)}
 .empty .em{font-size:46px;margin-bottom:12px}

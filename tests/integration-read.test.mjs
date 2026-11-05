@@ -155,6 +155,9 @@ try {
   // 017 musí čisto nabehnúť na celý reťazec 001..016.
   await db.exec(await readFile('supabase/migrations/017_reminder_reliability.sql','utf8'));
   assert.equal((await q('select get_backend_capabilities() as c')).rows[0].c.schema_version,17);
+  // 018 (odpoveď na úlohu) musí čisto nabehnúť na celý reťazec 001..017.
+  await db.exec(await readFile('supabase/migrations/018_task_handoff.sql','utf8'));
+  assert.equal((await q('select get_backend_capabilities() as c')).rows[0].c.schema_version,18);
   console.log('OAuth SQL: first-party claims preserved, isolated role/audience, consent, revocation, refresh and direct database access denial passed.');
   console.log('Attachment SQL: scopes, foreign tasks, server paths, reservation/finalization retry, conflict, expiry and metadata publication passed.');
   console.log('Integration read: scopes, expiry, revocation, group isolation, filters, metadata, local time and backwards compatibility passed.');

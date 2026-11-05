@@ -77,8 +77,9 @@
   <section class="sheet" id="taskSheet" aria-modal="true" role="dialog">
     <div class="grab"></div><h2 id="sheetTitle">Nová úloha</h2>
     <form id="taskForm">
+      <div class="thread" id="fThread" hidden></div>
       <div class="field"><label for="fTitle">Názov úlohy</label><input id="fTitle" maxlength="180" autocomplete="off" required placeholder="Napr. Zavolať lekárovi" /></div>
-      <div class="field"><label for="fNote">Poznámka (voliteľné)</label><textarea id="fNote" maxlength="4000" placeholder="Detaily…"></textarea></div>
+      <div class="field"><label for="fNote" id="fNoteLabel">Poznámka (voliteľné)</label><textarea id="fNote" maxlength="4000" placeholder="Detaily…"></textarea></div>
       <div class="field"><label for="fAssigned">Komu má úloha patriť</label><select id="fAssigned"></select><p class="field-help">Upozornenia v čase úlohy dostane iba vybraná osoba.</p></div>
       <div class="field partner-notify" id="notifyCreatorWrap" hidden>
         <label class="check-row" for="fNotifyCreator"><input id="fNotifyCreator" type="checkbox" /> <span class="check-label">Upozorni ma, keď príjemca úlohu splní</span></label>
