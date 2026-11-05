@@ -3,8 +3,11 @@ import { AttachmentError, MAX_ATTACHMENT_BYTES, sniffAttachmentType } from '../c
 export function fileDownloadUrl(value) {
   let url;
   try { url=new URL(value); } catch { throw new AttachmentError('INVALID_FILE_URL'); }
-  // Only OpenAI's file delivery domain; no arbitrary URL fetching, ports or redirects.
-  if(url.protocol!=='https:' || url.hostname!=='files.oaiusercontent.com' || url.port || url.username || url.password || url.hash) {
+  // ChatGPT uses both the legacy host and regional sdmntpr delivery hosts.
+  // Match only one OpenAI-owned hostname label; keep HTTPS and redirect restrictions.
+  const allowedHost = url.hostname === 'files.oaiusercontent.com'
+    || /^sdmntpr[a-z0-9-]+\.oaiusercontent\.com$/.test(url.hostname);
+  if(url.protocol!=='https:' || !allowedHost || url.port || url.username || url.password || url.hash) {
     throw new AttachmentError('FILE_HOST_NOT_ALLOWED');
   }
   return url.href;
