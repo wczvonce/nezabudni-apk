@@ -7,6 +7,8 @@ import {
   snoozeTask,
   deleteTask,
   rejectTask,
+  handoffTask,
+  fetchThread,
   hideTaskForSelf,
   fetchTasks,
   cachedTasks,
@@ -45,6 +47,11 @@ let syncToastRequested = false;
 let taskFormBusy = false;
 let settingActionBusy = false;
 let pendingNotificationTaskId = null;
+// 018: úloha, na ktorú sa práve odpovedá (formulár je vtedy v režime odpovede).
+let replyParent = null;
+let threadRenderToken = 0;
+// Odpoveď na úlohu potrebuje migráciu 018; starší backend tlačidlo neukáže.
+const HANDOFF_SCHEMA = 18;
 const taskMutationBusy = new Set();
 const shownAlarmAt = new Map();
 const shownAlarmCount = new Map();
@@ -62,6 +69,12 @@ function isToday(date) {
 }
 function isOverdue(task) { return task.status === 'pending' && !task.deleted_at && new Date(task.snoozed_until || task.due_at).getTime() < Date.now(); }
 function effectiveDue(task) { return task.snoozed_until || task.due_at; }
+// Záložka Hotové: splnené aj posunuté (018) — z pohľadu pôvodného príjemcu uzavreté.
+function isClosedDone(task) { return task.status === 'completed' || task.status === 'handed_off'; }
+function handoffAvailable() {
+  const state = getState();
+  return (state.demoMode || Number(state.backendSchema) >= HANDOFF_SCHEMA) && state.members.some((m) => m.id !== state.user.id);
+}
 function dueMs(task) { return new Date(effectiveDue(task)).getTime(); }
 // Bezpečný prevod timestampu na ms — chýbajúca/neplatná hodnota radí nakoniec.
 function tsMs(value) { const ms = new Date(value || 0).getTime(); return Number.isFinite(ms) ? ms : 0; }
@@ -94,7 +107,7 @@ export function bindUi() {
     loading: $('loadingScreen'), auth: $('authScreen'), app: $('app'), offline: $('offlineBanner'),
     main: $('main'), tabs: $('tabs'), dateLine: $('dateLine'), settingsBtn: $('settingsBtn'), addTaskBtn: $('addTaskBtn'),
     userName: $('userName'), userAvatar: $('userAvatar'), syncState: $('syncState'), scrim: $('scrim'), sheet: $('taskSheet'),
-    form: $('taskForm'), title: $('fTitle'), note: $('fNote'), assigned: $('fAssigned'), notifyWrap: $('notifyCreatorWrap'), notifyCreator: $('fNotifyCreator'),
+    form: $('taskForm'), thread: $('fThread'), title: $('fTitle'), note: $('fNote'), noteLabel: $('fNoteLabel'), assigned: $('fAssigned'), notifyWrap: $('notifyCreatorWrap'), notifyCreator: $('fNotifyCreator'),
     date: $('fDate'), time: $('fTime'), countdown: $('fCountdown'), prio: $('fPrio'), pre: $('fPre'), rec: $('fRec'), recMode: $('fRecMode'), recModeWrap: $('fRecModeWrap'),
     interval: $('fInterval'), maxReminders: $('fMaxReminders'), files: $('fFiles'), addFiles: $('addFilesBtn'), attList: $('fAttList'), existingAtt: $('fExistingAtt'), fileProgress: $('fileProgress'),
     deleteBtn: $('deleteTaskBtn'), closeSheetBtn: $('closeSheetBtn'), toast: $('toast'), alarmScrim: $('alarmScrim'), alarmTitle: $('alarmTitle'), alarmNote: $('alarmNote'),
@@ -121,13 +134,15 @@ export function bindUi() {
     const button = event.target.closest('[data-remove-file]'); if (!button) return;
     selectedFiles.splice(Number(button.dataset.removeFile), 1); renderSelectedFiles();
   });
-  dom.existingAtt.addEventListener('click', async (event) => {
+  const openAttachment = async (event) => {
     const button = event.target.closest('[data-open-attachment]'); if (!button) return;
     try {
       const url = await attachmentSignedUrl(button.dataset.openAttachment);
       window.open(url, '_blank', 'noopener,noreferrer');
     } catch (error) { console.warn('Attachment open failed', error); toast('Prílohu sa nepodarilo otvoriť', true); }
-  });
+  };
+  dom.existingAtt.addEventListener('click', openAttachment);
+  dom.thread.addEventListener('click', openAttachment);
   dom.tabs.addEventListener('click', (event) => {
     const tab = event.target.closest('[data-tab]'); if (!tab) return;
     setState({ activeTab: tab.dataset.tab }); render();
@@ -172,7 +187,7 @@ function renderTabs() {
     ...state.members.filter(m=>m.id!==state.user.id).map(m=>[m.id===partner?.id?'partner':`member:${m.id}`,m.display_name,tasks.filter(t=>t.status==='pending' && t.assigned_to===m.id).length]),
     ['missed', 'Zmeškané', tasks.filter(isOverdue).length],
     ['all', 'Všetky', tasks.filter((t) => t.status === 'pending').length],
-    ['done', 'Hotové', tasks.filter((t) => t.status === 'completed').length],
+    ['done', 'Hotové', tasks.filter(isClosedDone).length],
     ['rejected', 'Odmietnuté', tasks.filter((t) => t.status === 'rejected').length],
   ];
   dom.tabs.innerHTML = tabs.map(([id, label, count]) => `<button class="tab ${state.activeTab === id ? 'active' : ''}" data-tab="${id}">${esc(label)}${count ? `<span class="badge">${count}</span>` : ''}</button>`).join('');
@@ -187,14 +202,14 @@ function filteredTasks() {
     partner: (t) => t.status === 'pending' && t.assigned_to === partner?.id,
     missed: (t) => isOverdue(t),
     all: (t) => t.status === 'pending',
-    done: (t) => t.status === 'completed',
+    done: isClosedDone,
     rejected: (t) => t.status === 'rejected',
   };
   if(state.activeTab.startsWith('member:')) filters[state.activeTab]=t=>t.status==='pending' && t.assigned_to===state.activeTab.slice(7);
   return tasks.filter(filters[state.activeTab] || filters.today).sort((a, b) => {
     // Hotové/odmietnuté: najnovšie hore (podľa času splnenia / poslednej zmeny),
     // nie podľa termínu — inak by boli najstaršie úlohy navrchu.
-    if (state.activeTab === 'done') return tsMs(b.completed_at || b.updated_at) - tsMs(a.completed_at || a.updated_at);
+    if (state.activeTab === 'done') return tsMs(b.completed_at || b.handed_off_at || b.updated_at) - tsMs(a.completed_at || a.handed_off_at || a.updated_at);
     if (state.activeTab === 'rejected') return tsMs(b.updated_at) - tsMs(a.updated_at);
     if (a.status === 'completed' && b.status !== 'completed') return 1;
     if (b.status === 'completed' && a.status !== 'completed') return -1;
@@ -213,20 +228,23 @@ function renderTaskList() {
 
 function taskCard(task) {
   const state = getState(); const assignedName = nameById(task.assigned_to); const creatorName = nameById(task.created_by);
-  const overdue = isOverdue(task); const completed = task.status === 'completed'; const mine = task.assigned_to === state.user.id;
+  const overdue = isOverdue(task); const completed = task.status === 'completed'; const handedOff = task.status === 'handed_off'; const mine = task.assigned_to === state.user.id;
   // Audit A11: farba podľa PRIRADENIA (partnerova úloha), nie podľa textu mena.
   // CSS trieda ostáva 'dominika' kvôli existujúcim štýlom.
   const ownerClass = task.assigned_to === state.user.id ? '' : 'dominika';
-  const statusClass = completed ? 's-completed done-strike' : overdue ? 's-overdue' : task.snoozed_until ? 's-snoozed' : 's-active';
+  const statusClass = completed ? 's-completed done-strike' : handedOff ? 's-handed' : overdue ? 's-overdue' : task.snoozed_until ? 's-snoozed' : 's-active';
   const due = task.snoozed_until || task.due_at;
   const priority = Number(task.priority || 1);
+  const canFinish = mine && task.status === 'pending';
   return `<article class="card ${statusClass} p${priority}" data-open-task="${esc(task.id)}">
-    <button class="check ${completed ? 'checked' : ''}" ${mine && !completed ? `data-complete-task="${esc(task.id)}"` : 'disabled'} aria-label="${completed ? 'Splnené' : mine ? 'Označiť ako hotové' : 'Úlohu môže splniť jej vlastník'}"><svg viewBox="0 0 24 24"><polyline points="4,12 10,18 20,6"/></svg></button>
+    <button class="check ${completed ? 'checked' : ''}" ${canFinish ? `data-complete-task="${esc(task.id)}"` : 'disabled'} aria-label="${completed ? 'Splnené' : handedOff ? 'Posunuté' : mine ? 'Označiť ako hotové' : 'Úlohu môže splniť jej vlastník'}"><svg viewBox="0 0 24 24"><polyline points="4,12 10,18 20,6"/></svg></button>
     <div class="c-body"><div class="c-title">${esc(task.title)}</div>${task.notes ? `<div class="c-note">${esc(task.notes)}</div>` : ''}
-      <div class="c-meta"><span class="card-owner ${ownerClass}">Pre: ${esc(assignedName)}</span><span class="chip ${overdue ? 'late' : ''}">🕒 ${fmtDate(due)} ${fmtTime(due)}</span><span class="stars s${priority}">${'★'.repeat(priority)}</span>${task.snoozed_until ? '<span class="chip snz">Odložené</span>' : ''}</div>
+      <div class="c-meta"><span class="card-owner ${ownerClass}">Pre: ${esc(assignedName)}</span><span class="chip ${overdue ? 'late' : ''}">🕒 ${fmtDate(due)} ${fmtTime(due)}</span><span class="stars s${priority}">${'★'.repeat(priority)}</span>${task.snoozed_until && !handedOff ? '<span class="chip snz">Odložené</span>' : ''}${task.parent_task_id ? '<span class="chip reply">↪ odpoveď na úlohu</span>' : ''}</div>
       <div class="creator-line">Zadal/a: ${esc(creatorName)} · ${relativeTime(due)}${task.notify_creator_on_complete && task.created_by !== task.assigned_to ? ' · čaká na potvrdenie splnenia' : ''}</div>
       ${task.status === 'rejected' && task.rejection_reason ? `<div class="c-note reject-reason">Odmietnuté: ${esc(task.rejection_reason)}</div>` : ''}
-      ${mine && task.status === 'pending' ? `<button type="button" class="link-btn" data-reject-task="${esc(task.id)}">Odmietnuť</button>` : ''}
+      ${handedOff ? `<div class="c-note handoff-line">↪ Posunuté → ${esc(nameById(task.handed_off_to))}${task.handed_off_at ? ` · ${fmtDate(task.handed_off_at)} ${fmtTime(task.handed_off_at)}` : ''}</div>` : ''}
+      ${canFinish && handoffAvailable() ? `<button type="button" class="link-btn" data-reply-task="${esc(task.id)}">↪ Odpovedať</button>` : ''}
+      ${canFinish ? `<button type="button" class="link-btn" data-reject-task="${esc(task.id)}">Odmietnuť</button>` : ''}
       ${(mine || task.created_by === state.user.id) && task.status !== 'pending' ? `<button type="button" class="link-btn" data-hide-task="${esc(task.id)}">Odstrániť zo svojho zoznamu</button>` : ''}
     </div></article>`;
 }
@@ -234,6 +252,13 @@ function taskCard(task) {
 async function handleMainClick(event) {
   const complete = event.target.closest('[data-complete-task]');
   if (complete) { event.stopPropagation(); await mutateTask('complete', complete.dataset.completeTask); return; }
+  const reply = event.target.closest('[data-reply-task]');
+  if (reply) {
+    event.stopPropagation();
+    const parent = getState().tasks.find((t) => t.id === reply.dataset.replyTask);
+    if (parent) openReplySheet(parent);
+    return;
+  }
   const reject = event.target.closest('[data-reject-task]');
   if (reject) { event.stopPropagation(); await rejectTaskFromUi(reject.dataset.rejectTask); return; }
   const hide = event.target.closest('[data-hide-task]');
@@ -257,6 +282,9 @@ function translateTaskError(message) {
     REJECTION_REASON_TOO_LONG: 'Dôvod odmietnutia je príliš dlhý.',
     TASK_STILL_ACTIVE: 'Aktívnu úlohu nemožno odstrániť zo zoznamu.',
     ONLY_ASSIGNEE_CAN_REJECT: 'Odmietnuť môže iba príjemca úlohy.',
+    HANDOFF_NOTE_REQUIRED: 'Napíš odpoveď – čo treba urobiť ďalej.',
+    ONLY_ASSIGNEE_CAN_HANDOFF: 'Odpovedať môže iba ten, komu je úloha priradená.',
+    INVALID_HANDOFF: 'Odpoveď sa nepodarilo pripraviť. Skús to znova.',
     TASK_CONFLICT: 'Úloha bola medzitým zmenená. Obnov ju a skús znova.',
     TASK_DELETED: 'Úloha už bola vymazaná.',
     TASK_NOT_FOUND: 'Úloha sa nenašla.',
@@ -356,6 +384,9 @@ export function openTaskSheet(task = null) {
   closeAlarm();
   const state = getState(); setState({ editingTaskId: task?.id || null }); selectedFiles = []; selectedPriority = Number(task?.priority || 1);
   const terminal = Boolean(task) && task.status !== 'pending';
+  // Režim odpovede (018) zapína až openReplySheet; bežné otvorenie ho vždy vypne.
+  replyParent = null;
+  dom.noteLabel.textContent = 'Poznámka (voliteľné)'; dom.note.placeholder = 'Detaily…'; dom.note.required = false;
   $('sheetTitle').textContent = !task ? 'Nová úloha' : (terminal ? 'Detail úlohy' : 'Upraviť úlohu');
   dom.assigned.innerHTML = state.members.map((m) => `<option value="${esc(m.id)}">${esc(m.id === state.user.id ? 'Mne – ' + m.display_name : m.display_name)}</option>`).join('');
   dom.title.value = task?.title || ''; dom.note.value = task?.notes || ''; dom.assigned.value = task?.assigned_to || state.user.id;
@@ -366,7 +397,7 @@ export function openTaskSheet(task = null) {
   // Globálne „Vymazať úlohu" (pre oboch!) len pre živé úlohy — pri hotovej/
   // odmietnutej je správna akcia „Odstrániť zo svojho zoznamu" na karte;
   // globálny delete by partnerovi zmazal históriu splnenia.
-  dom.deleteBtn.hidden = !task || terminal; renderSelectedFiles(); renderExistingAttachments(task); updateNotifyCreatorVisibility(); updateCountdown();
+  dom.deleteBtn.hidden = !task || terminal; renderSelectedFiles(); renderExistingAttachments(task); renderThread(task); updateNotifyCreatorVisibility(); updateCountdown();
   // Issue 3: terminálnu úlohu možno len prezerať – zakáž úpravu polí a uloženie.
   [dom.title, dom.note, dom.assigned, dom.date, dom.time, dom.pre, dom.rec, dom.recMode, dom.interval, dom.maxReminders, dom.notifyCreator, dom.addFiles]
     .forEach((el) => { if (el) el.disabled = terminal; });
@@ -375,11 +406,74 @@ export function openTaskSheet(task = null) {
   // inak by príloha „zmizla" a vyzeralo to ako strata dát.
   dom.addFiles.hidden = state.demoMode;
   const saveBtn = dom.form.querySelector('button[type="submit"]');
-  if (saveBtn) { saveBtn.disabled = terminal; saveBtn.hidden = terminal; }
+  if (saveBtn) { saveBtn.disabled = terminal; saveBtn.hidden = terminal; saveBtn.textContent = 'Uložiť úlohu'; }
   dom.scrim.classList.add('show'); dom.sheet.classList.add('show'); setTimeout(() => dom.title.focus(), 200);
 }
 
-function closeTaskSheet() { dom.scrim.classList.remove('show'); dom.sheet.classList.remove('show'); setState({ editingTaskId: null }); }
+// 018: odpoveď na úlohu. Formulár novej úlohy pre iného člena skupiny,
+// predvolene pre toho, kto úlohu zadal; nad ním genéza doterajších krokov.
+export function openReplySheet(parent) {
+  const state = getState();
+  const others = state.members.filter((m) => m.id !== state.user.id);
+  if (!others.length) { toast('V skupine nie je nikto, komu by sa dala úloha posunúť', true); return; }
+  openTaskSheet(null);
+  replyParent = parent;
+  $('sheetTitle').textContent = '↪ Odpovedať na úlohu';
+  dom.assigned.innerHTML = others.map((m) => `<option value="${esc(m.id)}">${esc(m.display_name)}</option>`).join('');
+  dom.assigned.value = others.some((m) => m.id === parent.created_by) ? parent.created_by : others[0].id;
+  dom.title.value = parent.title;
+  dom.noteLabel.textContent = 'Odpoveď – čo treba urobiť ďalej';
+  dom.note.placeholder = 'Napr. Opravár chce súhlas majiteľa, zavolaj mu prosím';
+  dom.note.required = true;
+  selectedPriority = Number(parent.priority || 1);
+  dom.prio.querySelectorAll('button').forEach((b) => b.classList.toggle('sel', Number(b.dataset.p) === selectedPriority));
+  const saveBtn = dom.form.querySelector('button[type="submit"]');
+  if (saveBtn) saveBtn.textContent = '↪ Odoslať odpoveď';
+  updateNotifyCreatorVisibility();
+  renderThread(parent, { replying: true });
+  setTimeout(() => dom.note.focus(), 250);
+}
+
+function fmtStamp(iso) { return iso ? `${fmtDate(iso)} ${fmtTime(iso)}` : ''; }
+
+function threadStepStatus(task) {
+  let text = 'Čaká na splnenie';
+  if (task.status === 'handed_off') text = `↪ Posunuté → ${nameById(task.handed_off_to)} ${fmtStamp(task.handed_off_at)}`;
+  else if (task.status === 'completed') text = `✓ Splnené ${fmtStamp(task.completed_at)}`;
+  else if (task.status === 'rejected') text = `Odmietnuté${task.rejection_reason ? `: ${task.rejection_reason}` : ''}`;
+  else if (task.status === 'cancelled') text = 'Zrušené';
+  return task.deleted_at && task.status !== 'cancelled' ? `${text} · vymazaná` : text;
+}
+
+// Genéza: reťaz úloh, ktoré vznikli odpoveďami (spoločný thread_id = prvá úloha).
+// Najprv z lokálneho stavu (funguje offline), online sa doplní zo servera vrátane
+// úloh skrytých zo zoznamu a príloh jednotlivých krokov.
+function renderThread(task, { replying = false } = {}) {
+  const token = ++threadRenderToken;
+  dom.thread.hidden = true; dom.thread.innerHTML = '';
+  if (!task) return;
+  const rootId = task.thread_id || task.id;
+  const draw = (tasks, attachments = []) => {
+    if (token !== threadRenderToken) return;
+    const chain = tasks.filter((t) => t.id === rootId || t.thread_id === rootId);
+    if (!chain.some((t) => t.id === task.id)) chain.push(task);
+    chain.sort((a, b) => tsMs(a.created_at) - tsMs(b.created_at) || String(a.id).localeCompare(String(b.id)));
+    if (chain.length < 2 && !replying) { dom.thread.hidden = true; dom.thread.innerHTML = ''; return; }
+    dom.thread.innerHTML = `<h3>Genéza úlohy</h3><ol>${chain.map((t, i) => `<li class="thread-step ${t.id === task.id ? 'current' : ''}">
+      <div class="ts-head">${i + 1}. ${esc(fmtStamp(t.created_at))} · ${esc(nameById(t.created_by))} → ${esc(nameById(t.assigned_to))}${t.id === task.id && !replying ? ' · <span class="ts-here">táto úloha</span>' : ''}</div>
+      <div class="ts-title">${esc(t.title)}</div>${t.notes ? `<div class="ts-note">${esc(t.notes)}</div>` : ''}
+      ${attachments.filter((a) => a.task_id === t.id).map((a) => `<button type="button" class="att-item att-open" data-open-attachment="${esc(a.storage_path)}"><span class="att-icon">${(a.mime_type || '').startsWith('image/') ? '🖼️' : '📄'}</span><div class="att-name">${esc(a.filename)}</div><span class="att-dl">↗</span></button>`).join('')}
+      <div class="ts-status">${esc(threadStepStatus(t))}</div></li>`).join('')}</ol>${replying ? '<p class="thread-next">↓ Tvoja odpoveď vytvorí ďalší krok</p>' : ''}`;
+    dom.thread.hidden = false;
+  };
+  draw(getState().tasks);
+  if (!getState().demoMode && navigator.onLine) {
+    fetchThread(rootId).then((result) => { if (result?.tasks?.length) draw(result.tasks, result.attachments); })
+      .catch((error) => console.warn('Thread load failed', error));
+  }
+}
+
+function closeTaskSheet() { replyParent = null; threadRenderToken += 1; dom.scrim.classList.remove('show'); dom.sheet.classList.remove('show'); setState({ editingTaskId: null }); }
 // Checkbox „upozorni ma pri splnení" sa skrýva pri úlohe pre seba — ale NESMIE
 // pri skrytí mazať hodnotu: keď PRÍJEMCA edituje úlohu od partnera, checkbox je
 // z jeho pohľadu skrytý a vynulovanie by potichu zmazalo partnerovo prianie
@@ -407,7 +501,13 @@ async function saveTaskFromForm(event) {
   const saveButton = dom.form.querySelector('button[type="submit"]');
   if (saveButton) saveButton.disabled = true;
   const state = getState(); const editing = state.tasks.find((t) => t.id === state.editingTaskId);
+  // Aktuálny stav z cache — počas písania odpovede mohol sync úlohu zmeniť.
+  const parent = replyParent ? (state.tasks.find((t) => t.id === replyParent.id) || replyParent) : null;
   try {
+    if (parent && parent.status !== 'pending') {
+      toast('Na túto úlohu sa už nedá odpovedať – medzitým sa uzavrela', true);
+      return;
+    }
     // Issue 3: terminálnu úlohu nemožno upraviť (poistka aj na klientovi).
     if (editing && editing.status !== 'pending') {
       toast('Hotovú alebo zrušenú úlohu nemožno upraviť', true);
@@ -424,6 +524,10 @@ async function saveTaskFromForm(event) {
       toast('Napíš názov úlohy', true);
       return;
     }
+    if (parent && !input.notes) {
+      toast('Napíš odpoveď – čo treba urobiť ďalej', true);
+      return;
+    }
     // Predpripomienka dlhšia/rovná perióde opakovania by nikdy nevystrelila —
     // ďalší výskyt vzniká až pri splatnosti predošlého, čas by bol v minulosti.
     const RECURRENCE_MINUTES = { daily: 1440, weekly: 10080, monthly: 40320 };
@@ -432,11 +536,13 @@ async function saveTaskFromForm(event) {
       return;
     }
     dom.fileProgress.textContent = 'Ukladám…';
-    const result = editing ? await updateTask(editing, input, selectedFiles) : await createTask(input, selectedFiles);
+    const result = parent ? await handoffTask(parent, input, selectedFiles)
+      : editing ? await updateTask(editing, input, selectedFiles) : await createTask(input, selectedFiles);
     await refreshFromCacheOrCloud();
     closeTaskSheet();
     if (result.attachmentErrors?.length) toast(`Úloha je uložená, ale ${result.attachmentErrors.length} príloh sa nepodarilo nahrať`, true);
     else if (result.attachmentsSkipped) toast(`Uložené offline – ${result.attachmentsSkipped} príloh sa NEnahralo, pridaj ich po pripojení znova`, true);
+    else if (parent) toast(result.queued ? 'Odpoveď uložená offline – odošle sa po pripojení' : `Posunuté – ${nameById(input.assigned_to)} to má v úlohách`);
     else toast(result.queued ? 'Uložené offline – čaká na synchronizáciu' : 'Úloha uložená');
   } catch (error) { dom.fileProgress.textContent = ''; toast(translateTaskError(error.message) || 'Uloženie zlyhalo', true); }
   finally {

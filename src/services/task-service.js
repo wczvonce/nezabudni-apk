@@ -155,6 +155,12 @@ export async function fetchTasks(signal) {
         byId.set(taskId, local);
       }
     }
+    // 018: nová úloha z čakajúcej odpovede na serveri ešte nie je – ponechaj
+    // lokálnu, inak by po syncu zmizla, kým sa odpoveď neodošle.
+    for (const item of pendingItems) {
+      const childId = item.action === 'handoff' && item.status !== 'failed' ? item.payload?.p_new_id : null;
+      if (childId && !byId.has(childId) && !hidden.has(childId) && cachedById.has(childId)) byId.set(childId, cachedById.get(childId));
+    }
     merged.length = 0;
     merged.push(...byId.values());
   }
@@ -175,6 +181,7 @@ async function callRpc(action, payload) {
     snooze: 'api_snooze_task',
     delete: 'api_delete_task',
     reject: 'api_reject_task',
+    handoff: 'api_handoff_task',
   };
   const name = rpcByAction[action];
   if (!name) throw new Error(`Neznáma operácia: ${action}`);
@@ -183,7 +190,13 @@ async function callRpc(action, payload) {
   return Array.isArray(data) ? data[0] : data;
 }
 
-async function queueMutation(action, payload, optimisticTask, snapshot) {
+// api_handoff_task vracia { original, task }; ostatné RPC jednu úlohu.
+function rpcResultTasks(action, result) {
+  if (action === 'handoff') return [result?.original, result?.task].filter(Boolean);
+  return result ? [result] : [];
+}
+
+async function queueMutation(action, payload, optimisticTask, snapshot, extraTasks = []) {
   const mutationId = payload.p_mutation_id || uuid();
   payload.p_mutation_id = mutationId;
   const mutation = {
@@ -200,7 +213,7 @@ async function queueMutation(action, payload, optimisticTask, snapshot) {
   // Atomicita: ak optimistický zápis zlyhá (napr. plná kvóta IndexedDB), nesmie
   // ostať v outboxe osirelá mutácia bez zodpovedajúcej úlohy v zozname – vrátime ju späť.
   try {
-    if (optimisticTask) await snapshot.db.putTasks([optimisticTask]);
+    if (optimisticTask) await snapshot.db.putTasks([optimisticTask, ...extraTasks]);
   } catch (error) {
     await snapshot.db.removeOutbox(mutationId).catch(() => {});
     throw error;
@@ -424,6 +437,80 @@ export async function rejectTask(task, reason) {
   }
 }
 
+// 018: odpoveď na úlohu. Pôvodná sa zavrie ako „Posunuté" a vznikne nová úloha
+// pre iného člena skupiny, prepojená do reťaze (genéza). Server to robí v jednej
+// transakcii; ID novej úlohy sa generuje tu, aby offline replay nič nezdvojil.
+export async function handoffTask(task, input, files = []) {
+  const snapshot = contextSnapshot();
+  const notes = String(input.notes || '').trim();
+  if (!notes) throw new Error('HANDOFF_NOTE_REQUIRED');
+  if (!navigator.onLine && files.length) throw new Error('Prílohy sa dajú pridať až po pripojení na internet.');
+  const newId = uuid();
+  const payload = {
+    p_task_id: task.id,
+    p_new_id: newId,
+    p_mutation_id: uuid(),
+    p_assigned_to: input.assigned_to,
+    p_title: input.title,
+    p_notes: notes,
+    p_due_at: input.due_at,
+    p_timezone: input.timezone || CONFIG.defaultTimezone,
+    p_priority: Number(input.priority || 1),
+    p_pre_reminder_minutes: Number(input.pre_reminder_minutes || 0),
+    p_recurrence_rule: input.recurrence_rule || 'none',
+    p_recurrence_mode: input.recurrence_mode || 'after',
+    p_notify_creator_on_complete: Boolean(input.notify_creator_on_complete),
+    p_reminder_interval_seconds: Number(input.reminder_interval_seconds || 60),
+    p_max_reminders: Number(input.max_reminders || 10),
+  };
+  const now = new Date().toISOString();
+  const original = { ...task, status: 'handed_off', handed_off_to: input.assigned_to, handed_off_at: now, snoozed_until: null, updated_at: now, version: Number(task.version) + 1, last_changed_by: snapshot.context.userId };
+  const created = { ...demoTaskFromInput({ ...payload, p_id: newId }, null, snapshot.context), parent_task_id: task.id, thread_id: task.thread_id || task.id };
+
+  if (snapshot.context.demoMode) {
+    await snapshot.db.putTasks([original, created]);
+    await saveDemoAttachments(snapshot, created.id, files);
+    return { task: created, original, queued: false };
+  }
+  const queue = async () => ({ ...(await queueMutation('handoff', payload, original, snapshot, [created])), task: created, original });
+  if (!navigator.onLine) return queue();
+  try {
+    const result = await callRpc('handoff', payload);
+    assertCurrent(snapshot);
+    await snapshot.db.putTasks(rpcResultTasks('handoff', result));
+    const attachmentErrors = files.length ? await uploadAttachments(result.task, files, snapshot) : [];
+    return { task: result.task, original: result.original, queued: false, attachmentErrors };
+  } catch (error) {
+    if (isNetworkError(error)) return { ...(await queue()), attachmentsSkipped: files.length };
+    throw error;
+  }
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// 018: genéza – všetky úlohy reťaze aj s prílohami, vrátane úloh, ktoré si
+// používateľ skryl zo svojho zoznamu (skrytie je len filter zoznamu).
+export async function fetchThread(rootId) {
+  const snapshot = contextSnapshot();
+  if (snapshot.context.demoMode || !navigator.onLine || !UUID_RE.test(String(rootId))) return null;
+  const sb = requireSupabase();
+  const { data, error } = await sb.from('tasks').select('*')
+    .eq('pair_id', snapshot.context.pairId)
+    .or(`id.eq.${rootId},thread_id.eq.${rootId}`)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  const ids = (data || []).map((t) => t.id);
+  let attachments = [];
+  if (ids.length) {
+    const { data: rows, error: attError } = await sb.from('task_attachments')
+      .select('id,task_id,filename,mime_type,size_bytes,storage_path').in('task_id', ids).order('created_at');
+    if (attError) throw attError;
+    attachments = rows || [];
+  }
+  assertCurrent(snapshot);
+  return { tasks: data || [], attachments };
+}
+
 // Issue 12: príjemca odstráni terminálnu úlohu zo SVOJHO zoznamu (nemaže autorov záznam).
 export async function hideTaskForSelf(task) {
   const snapshot = contextSnapshot();
@@ -464,11 +551,12 @@ async function flushOutboxInner(signal) {
   for (const item of items) {
     if (signal?.aborted) throw operationAborted();
     try {
-      const task = await callRpc(item.action, item.payload);
+      const result = await callRpc(item.action, item.payload);
       // Issue 9: dobehnuté po timeoute? Zahoď výsledok – inak prepíše novší sync.
       if (signal?.aborted) throw operationAborted();
       assertCurrent(snapshot);
-      if (task) await snapshot.db.putTasks([task]);
+      const tasks = rpcResultTasks(item.action, result);
+      if (tasks.length) await snapshot.db.putTasks(tasks);
       await snapshot.db.removeOutbox(item.mutation_id);
       processed += 1;
     } catch (error) {

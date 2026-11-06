@@ -22,7 +22,9 @@ type Task = {
   deleted_at: string | null;
   acknowledged_at: string | null;
   assigned_to: string;
+  created_by: string;
   completed_by: string | null;
+  parent_task_id: string | null;
   priority: number;
   due_at: string;
   snoozed_until: string | null;
@@ -215,7 +217,7 @@ function safeJson(value: string): Record<string, unknown> | null {
 }
 
 async function loadTask(supabase: ReturnType<typeof createClient>, taskId: string): Promise<Task | null> {
-  const { data, error } = await supabase.from('tasks').select('id,title,notes,status,deleted_at,acknowledged_at,assigned_to,completed_by,priority,due_at,snoozed_until,reminder_interval_seconds,max_reminders,version').eq('id', taskId).maybeSingle();
+  const { data, error } = await supabase.from('tasks').select('id,title,notes,status,deleted_at,acknowledged_at,assigned_to,created_by,completed_by,parent_task_id,priority,due_at,snoozed_until,reminder_interval_seconds,max_reminders,version').eq('id', taskId).maybeSingle();
   if (error) throw error;
   return data as Task | null;
 }
@@ -261,6 +263,14 @@ async function buildMessage(supabase: ReturnType<typeof createClient>, job: Noti
       if (data?.display_name) name = data.display_name;
     }
     return { heading: 'Úloha bola splnená', body: `${name} splnil/a: ${task.title}` };
+  }
+  if (job.kind === 'task_assigned' && task.parent_task_id) {
+    // Odpoveď na úlohu (018): príjemca má hneď vidieť, kto mu ju posunul a čo napísal.
+    let name = 'Partner';
+    const { data } = await supabase.from('profiles').select('display_name').eq('id', task.created_by).maybeSingle();
+    if (data?.display_name) name = data.display_name;
+    const reply = String(task.notes || '').replace(/\s+/g, ' ').trim();
+    return { heading: `↪ ${name} ti posunul/a úlohu`, body: reply ? `${task.title} — ${reply.length > 120 ? `${reply.slice(0, 119)}…` : reply}` : task.title };
   }
   if (job.kind === 'task_assigned') return { heading: 'Nová úloha od partnera', body: task.title };
   return { heading: 'Nezabudni', body: task.title };
