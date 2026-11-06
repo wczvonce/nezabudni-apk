@@ -110,7 +110,7 @@ export function bindUi() {
     form: $('taskForm'), thread: $('fThread'), title: $('fTitle'), note: $('fNote'), noteLabel: $('fNoteLabel'), assigned: $('fAssigned'), notifyWrap: $('notifyCreatorWrap'), notifyCreator: $('fNotifyCreator'),
     date: $('fDate'), time: $('fTime'), countdown: $('fCountdown'), prio: $('fPrio'), pre: $('fPre'), rec: $('fRec'), recMode: $('fRecMode'), recModeWrap: $('fRecModeWrap'),
     interval: $('fInterval'), maxReminders: $('fMaxReminders'), files: $('fFiles'), addFiles: $('addFilesBtn'), attList: $('fAttList'), existingAtt: $('fExistingAtt'), fileProgress: $('fileProgress'),
-    deleteBtn: $('deleteTaskBtn'), closeSheetBtn: $('closeSheetBtn'), toast: $('toast'), alarmScrim: $('alarmScrim'), alarmTitle: $('alarmTitle'), alarmNote: $('alarmNote'),
+    deleteBtn: $('deleteTaskBtn'), closeSheetBtn: $('closeSheetBtn'), toast: $('toast'), alarmScrim: $('alarmScrim'), alarmTitle: $('alarmTitle'), alarmNote: $('alarmNote'), alarmContent: $('alarmContent'),
     alarmOk: $('alarmOkBtn'), alarmDone: $('alarmDoneBtn'), alarmOpen: $('alarmOpenBtn'), snooze15: $('snooze15Btn'), snooze60: $('snooze60Btn'),
   });
 
@@ -124,6 +124,7 @@ export function bindUi() {
   dom.rec.addEventListener('change', () => { dom.recModeWrap.hidden = dom.rec.value === 'none'; });
   dom.date.addEventListener('input', updateCountdown);
   dom.time.addEventListener('input', updateCountdown);
+  dom.note.addEventListener('input', autosizeNote);
   dom.prio.addEventListener('click', (event) => {
     const btn = event.target.closest('button[data-p]'); if (!btn) return;
     selectedPriority = Number(btn.dataset.p); dom.prio.querySelectorAll('button').forEach((b) => b.classList.toggle('sel', b === btn));
@@ -142,7 +143,12 @@ export function bindUi() {
     } catch (error) { console.warn('Attachment open failed', error); toast('Prílohu sa nepodarilo otvoriť', true); }
   };
   dom.existingAtt.addEventListener('click', openAttachment);
-  dom.thread.addEventListener('click', openAttachment);
+  dom.thread.addEventListener('click', (event) => {
+    // Dlhá poznámka kroku genézy je skrátená na 5 riadkov; ťuknutie ju rozbalí/zbalí.
+    const toggle = event.target.closest('[data-toggle-note]');
+    if (toggle) { (toggle.classList.contains('ts-more') ? toggle.previousElementSibling : toggle).classList.toggle('open'); return; }
+    openAttachment(event);
+  });
   dom.tabs.addEventListener('click', (event) => {
     const tab = event.target.closest('[data-tab]'); if (!tab) return;
     setState({ activeTab: tab.dataset.tab }); render();
@@ -397,7 +403,7 @@ export function openTaskSheet(task = null) {
   // Globálne „Vymazať úlohu" (pre oboch!) len pre živé úlohy — pri hotovej/
   // odmietnutej je správna akcia „Odstrániť zo svojho zoznamu" na karte;
   // globálny delete by partnerovi zmazal históriu splnenia.
-  dom.deleteBtn.hidden = !task || terminal; renderSelectedFiles(); renderExistingAttachments(task); renderThread(task); updateNotifyCreatorVisibility(); updateCountdown();
+  dom.deleteBtn.hidden = !task || terminal; renderSelectedFiles(); renderExistingAttachments(task); renderThread(task); updateNotifyCreatorVisibility(); updateCountdown(); autosizeNote();
   // Issue 3: terminálnu úlohu možno len prezerať – zakáž úpravu polí a uloženie.
   [dom.title, dom.note, dom.assigned, dom.date, dom.time, dom.pre, dom.rec, dom.recMode, dom.interval, dom.maxReminders, dom.notifyCreator, dom.addFiles]
     .forEach((el) => { if (el) el.disabled = terminal; });
@@ -407,7 +413,11 @@ export function openTaskSheet(task = null) {
   dom.addFiles.hidden = state.demoMode;
   const saveBtn = dom.form.querySelector('button[type="submit"]');
   if (saveBtn) { saveBtn.disabled = terminal; saveBtn.hidden = terminal; saveBtn.textContent = 'Uložiť úlohu'; }
-  dom.scrim.classList.add('show'); dom.sheet.classList.add('show'); setTimeout(() => dom.title.focus(), 200);
+  // Formulár vždy od vrchu (genéza je navrchu). Fokus a klávesnica iba pri novej
+  // úlohe — pri existujúcej by skok na názov odrolal genézu mimo obrazovky.
+  dom.sheet.scrollTop = 0;
+  dom.scrim.classList.add('show'); dom.sheet.classList.add('show');
+  if (!task) setTimeout(() => dom.title.focus(), 200);
 }
 
 // 018: odpoveď na úlohu. Formulár novej úlohy pre iného člena skupiny,
@@ -461,7 +471,7 @@ function renderThread(task, { replying = false } = {}) {
     if (chain.length < 2 && !replying) { dom.thread.hidden = true; dom.thread.innerHTML = ''; return; }
     dom.thread.innerHTML = `<h3>Genéza úlohy</h3><ol>${chain.map((t, i) => `<li class="thread-step ${t.id === task.id ? 'current' : ''}">
       <div class="ts-head">${i + 1}. ${esc(fmtStamp(t.created_at))} · ${esc(nameById(t.created_by))} → ${esc(nameById(t.assigned_to))}${t.id === task.id && !replying ? ' · <span class="ts-here">táto úloha</span>' : ''}</div>
-      <div class="ts-title">${esc(t.title)}</div>${t.notes ? `<div class="ts-note">${esc(t.notes)}</div>` : ''}
+      <div class="ts-title">${esc(t.title)}</div>${t.notes ? `<div class="ts-note${t.notes.length > 220 ? ' clamp' : ''}" data-toggle-note>${esc(t.notes)}</div>${t.notes.length > 220 ? '<button type="button" class="ts-more" data-toggle-note>zobraziť celé ▾</button>' : ''}` : ''}
       ${attachments.filter((a) => a.task_id === t.id).map((a) => `<button type="button" class="att-item att-open" data-open-attachment="${esc(a.storage_path)}"><span class="att-icon">${(a.mime_type || '').startsWith('image/') ? '🖼️' : '📄'}</span><div class="att-name">${esc(a.filename)}</div><span class="att-dl">↗</span></button>`).join('')}
       <div class="ts-status">${esc(threadStepStatus(t))}</div></li>`).join('')}</ol>${replying ? '<p class="thread-next">↓ Tvoja odpoveď vytvorí ďalší krok</p>' : ''}`;
     dom.thread.hidden = false;
@@ -473,12 +483,23 @@ function renderThread(task, { replying = false } = {}) {
   }
 }
 
-function closeTaskSheet() { replyParent = null; threadRenderToken += 1; dom.scrim.classList.remove('show'); dom.sheet.classList.remove('show'); setState({ editingTaskId: null }); }
+function closeTaskSheet() {
+  // Zatvorený formulár nesmie držať fokus v poli — na telefóne by ostala otvorená klávesnica.
+  if (dom.sheet.contains(document.activeElement)) document.activeElement.blur();
+  replyParent = null; threadRenderToken += 1; dom.scrim.classList.remove('show'); dom.sheet.classList.remove('show'); setState({ editingTaskId: null });
+}
 // Checkbox „upozorni ma pri splnení" sa skrýva pri úlohe pre seba — ale NESMIE
 // pri skrytí mazať hodnotu: keď PRÍJEMCA edituje úlohu od partnera, checkbox je
 // z jeho pohľadu skrytý a vynulovanie by potichu zmazalo partnerovo prianie
 // (bug: Dominika zaškrtla, Ivan upravil čas → upozornenie zmizlo).
 function updateNotifyCreatorVisibility() { dom.notifyWrap.hidden = dom.assigned.value === getState().user.id; }
+// Dlhá poznámka sa v 60px poli nedala čítať (najmä v detaile hotovej úlohy, kde
+// je pole zakázané) — pole rastie s textom, najviac do 45 % výšky obrazovky.
+function autosizeNote() {
+  dom.note.style.height = '';
+  const needed = dom.note.scrollHeight;
+  if (needed) dom.note.style.height = `${Math.min(needed + 2, Math.round(window.innerHeight * 0.45))}px`;
+}
 function updateCountdown() { if (!dom.date.value || !dom.time.value) return; dom.countdown.textContent = relativeTime(inputToIso(dom.date.value, dom.time.value)); }
 // Už uložené prílohy existujúcej úlohy — doteraz sa dali nahrať, ale nikde
 // nezobrazovali. Načítanie je async; guard cez editingTaskId zabráni vloženiu
@@ -688,6 +709,10 @@ function showAlarmForTask(task) {
   alarmTask = task;
   dom.alarmTitle.textContent = task.title;
   dom.alarmNote.textContent = task.notes || `${fmtDate(effectiveDue(task))} ${fmtTime(effectiveDue(task))}`;
+  // Dlhý text: menší nadpis, poznámka zarovnaná doľava a posúvanie od začiatku.
+  dom.alarmTitle.classList.toggle('long', String(task.title || '').length > 70);
+  dom.alarmNote.classList.toggle('long', String(task.notes || '').length > 140);
+  dom.alarmContent.scrollTop = 0;
   dom.alarmScrim.classList.add('show');
 }
 function closeAlarm() { dom.alarmScrim.classList.remove('show'); alarmTask = null; }
