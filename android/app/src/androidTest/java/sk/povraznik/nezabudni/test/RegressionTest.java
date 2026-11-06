@@ -82,7 +82,7 @@ public class RegressionTest {
             }
             JSONObject report = new JSONObject(new JSONArray("["+result+"]").getString(0));
             assertTrue("Android scenarios: "+report,report.getBoolean("ok"));
-            assertEquals("All fifteen scenarios must execute",15,report.getJSONArray("checks").length());
+            assertEquals("All nineteen scenarios must execute",19,report.getJSONArray("checks").length());
         }
     }
 }
